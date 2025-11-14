@@ -28,12 +28,48 @@
 #include <esp_attr.h>
 
 // ===========================
+// ESP32 Variant Detection
+// ===========================
+
+// Detect ESP32 chip variant for proper pin and peripheral mapping
+#if CONFIG_IDF_TARGET_ESP32
+    #define MCP2515_CHIP_ESP32_CLASSIC  1
+#elif CONFIG_IDF_TARGET_ESP32S2
+    #define MCP2515_CHIP_ESP32S2        1
+#elif CONFIG_IDF_TARGET_ESP32S3
+    #define MCP2515_CHIP_ESP32S3        1
+#elif CONFIG_IDF_TARGET_ESP32C3
+    #define MCP2515_CHIP_ESP32C3        1
+#elif CONFIG_IDF_TARGET_ESP32C6
+    #define MCP2515_CHIP_ESP32C6        1
+#elif CONFIG_IDF_TARGET_ESP32H2
+    #define MCP2515_CHIP_ESP32H2        1
+#else
+    // Fallback: Assume classic ESP32 for Arduino IDE without explicit target
+    #define MCP2515_CHIP_ESP32_CLASSIC  1
+#endif
+
+// ===========================
 // ESP32 SPI Configuration
 // ===========================
 
-/** Default SPI host for MCP2515 (VSPI on ESP32) */
+/** Default SPI host for MCP2515
+ * - ESP32 classic: VSPI_HOST (SPI3)
+ * - ESP32-S2/S3/C3/C6/H2: SPI2_HOST or SPI3_HOST
+ */
 #ifndef MCP2515_SPI_HOST
-#define MCP2515_SPI_HOST        VSPI_HOST
+    #if defined(MCP2515_CHIP_ESP32_CLASSIC) && defined(VSPI_HOST)
+        // Classic ESP32 with VSPI_HOST available
+        #define MCP2515_SPI_HOST        VSPI_HOST
+    #elif defined(SPI3_HOST)
+        // Use SPI3_HOST if available (newer ESP-IDF/Arduino)
+        #define MCP2515_SPI_HOST        SPI3_HOST
+    #elif defined(SPI2_HOST)
+        // Fallback to SPI2_HOST
+        #define MCP2515_SPI_HOST        SPI2_HOST
+    #else
+        #error "No SPI host definition found for this ESP32 variant"
+    #endif
 #endif
 
 /** Default SPI clock speed (10 MHz) */
@@ -57,32 +93,123 @@
 #endif
 
 // ===========================
-// Default ESP32 Pin Mappings
+// Default ESP32 Pin Mappings (Variant-Specific)
 // ===========================
 
-/** Default MOSI pin (VSPI) */
+/**
+ * Default pin mappings for different ESP32 variants
+ * These use the default VSPI/SPI3 pins for each chip
+ * Users can override these with custom pin assignments
+ */
+
 #ifndef MCP2515_DEFAULT_MOSI
-#define MCP2515_DEFAULT_MOSI    GPIO_NUM_23
+    #if defined(MCP2515_CHIP_ESP32_CLASSIC)
+        // ESP32 Classic: VSPI MOSI = GPIO 23
+        #define MCP2515_DEFAULT_MOSI    GPIO_NUM_23
+    #elif defined(MCP2515_CHIP_ESP32S2)
+        // ESP32-S2: Default SPI MOSI = GPIO 35
+        #define MCP2515_DEFAULT_MOSI    GPIO_NUM_35
+    #elif defined(MCP2515_CHIP_ESP32S3)
+        // ESP32-S3: Default SPI MOSI = GPIO 11
+        #define MCP2515_DEFAULT_MOSI    GPIO_NUM_11
+    #elif defined(MCP2515_CHIP_ESP32C3)
+        // ESP32-C3: Default SPI MOSI = GPIO 6
+        #define MCP2515_DEFAULT_MOSI    GPIO_NUM_6
+    #elif defined(MCP2515_CHIP_ESP32C6)
+        // ESP32-C6: Default SPI MOSI = GPIO 19
+        #define MCP2515_DEFAULT_MOSI    GPIO_NUM_19
+    #else
+        // Generic fallback
+        #define MCP2515_DEFAULT_MOSI    GPIO_NUM_23
+    #endif
 #endif
 
-/** Default MISO pin (VSPI) */
 #ifndef MCP2515_DEFAULT_MISO
-#define MCP2515_DEFAULT_MISO    GPIO_NUM_19
+    #if defined(MCP2515_CHIP_ESP32_CLASSIC)
+        // ESP32 Classic: VSPI MISO = GPIO 19
+        #define MCP2515_DEFAULT_MISO    GPIO_NUM_19
+    #elif defined(MCP2515_CHIP_ESP32S2)
+        // ESP32-S2: Default SPI MISO = GPIO 37
+        #define MCP2515_DEFAULT_MISO    GPIO_NUM_37
+    #elif defined(MCP2515_CHIP_ESP32S3)
+        // ESP32-S3: Default SPI MISO = GPIO 13
+        #define MCP2515_DEFAULT_MISO    GPIO_NUM_13
+    #elif defined(MCP2515_CHIP_ESP32C3)
+        // ESP32-C3: Default SPI MISO = GPIO 5
+        #define MCP2515_DEFAULT_MISO    GPIO_NUM_5
+    #elif defined(MCP2515_CHIP_ESP32C6)
+        // ESP32-C6: Default SPI MISO = GPIO 20
+        #define MCP2515_DEFAULT_MISO    GPIO_NUM_20
+    #else
+        // Generic fallback
+        #define MCP2515_DEFAULT_MISO    GPIO_NUM_19
+    #endif
 #endif
 
-/** Default SCK pin (VSPI) */
 #ifndef MCP2515_DEFAULT_SCK
-#define MCP2515_DEFAULT_SCK     GPIO_NUM_18
+    #if defined(MCP2515_CHIP_ESP32_CLASSIC)
+        // ESP32 Classic: VSPI SCK = GPIO 18
+        #define MCP2515_DEFAULT_SCK     GPIO_NUM_18
+    #elif defined(MCP2515_CHIP_ESP32S2)
+        // ESP32-S2: Default SPI SCK = GPIO 36
+        #define MCP2515_DEFAULT_SCK     GPIO_NUM_36
+    #elif defined(MCP2515_CHIP_ESP32S3)
+        // ESP32-S3: Default SPI SCK = GPIO 12
+        #define MCP2515_DEFAULT_SCK     GPIO_NUM_12
+    #elif defined(MCP2515_CHIP_ESP32C3)
+        // ESP32-C3: Default SPI SCK = GPIO 4
+        #define MCP2515_DEFAULT_SCK     GPIO_NUM_4
+    #elif defined(MCP2515_CHIP_ESP32C6)
+        // ESP32-C6: Default SPI SCK = GPIO 18
+        #define MCP2515_DEFAULT_SCK     GPIO_NUM_18
+    #else
+        // Generic fallback
+        #define MCP2515_DEFAULT_SCK     GPIO_NUM_18
+    #endif
 #endif
 
-/** Default CS pin */
 #ifndef MCP2515_DEFAULT_CS
-#define MCP2515_DEFAULT_CS      GPIO_NUM_5
+    #if defined(MCP2515_CHIP_ESP32_CLASSIC)
+        // ESP32 Classic: VSPI CS = GPIO 5
+        #define MCP2515_DEFAULT_CS      GPIO_NUM_5
+    #elif defined(MCP2515_CHIP_ESP32S2)
+        // ESP32-S2: Default SPI CS = GPIO 34
+        #define MCP2515_DEFAULT_CS      GPIO_NUM_34
+    #elif defined(MCP2515_CHIP_ESP32S3)
+        // ESP32-S3: Default SPI CS = GPIO 10
+        #define MCP2515_DEFAULT_CS      GPIO_NUM_10
+    #elif defined(MCP2515_CHIP_ESP32C3)
+        // ESP32-C3: Default SPI CS = GPIO 7
+        #define MCP2515_DEFAULT_CS      GPIO_NUM_7
+    #elif defined(MCP2515_CHIP_ESP32C6)
+        // ESP32-C6: Default SPI CS = GPIO 22
+        #define MCP2515_DEFAULT_CS      GPIO_NUM_22
+    #else
+        // Generic fallback
+        #define MCP2515_DEFAULT_CS      GPIO_NUM_5
+    #endif
 #endif
 
-/** Default INT pin for interrupts */
 #ifndef MCP2515_DEFAULT_INT
-#define MCP2515_DEFAULT_INT     GPIO_NUM_4
+    #if defined(MCP2515_CHIP_ESP32_CLASSIC)
+        // ESP32 Classic: GPIO 4 for interrupt
+        #define MCP2515_DEFAULT_INT     GPIO_NUM_4
+    #elif defined(MCP2515_CHIP_ESP32S2)
+        // ESP32-S2: GPIO 33 for interrupt
+        #define MCP2515_DEFAULT_INT     GPIO_NUM_33
+    #elif defined(MCP2515_CHIP_ESP32S3)
+        // ESP32-S3: GPIO 9 for interrupt
+        #define MCP2515_DEFAULT_INT     GPIO_NUM_9
+    #elif defined(MCP2515_CHIP_ESP32C3)
+        // ESP32-C3: GPIO 8 for interrupt
+        #define MCP2515_DEFAULT_INT     GPIO_NUM_8
+    #elif defined(MCP2515_CHIP_ESP32C6)
+        // ESP32-C6: GPIO 21 for interrupt
+        #define MCP2515_DEFAULT_INT     GPIO_NUM_21
+    #else
+        // Generic fallback
+        #define MCP2515_DEFAULT_INT     GPIO_NUM_4
+    #endif
 #endif
 
 // ===========================
