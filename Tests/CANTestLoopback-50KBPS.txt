@@ -1,0 +1,724 @@
+ *  Executing task: platformio device monitor --environment esp32-s3-devkitc-1 
+
+
+Please build project in debug configuration to get more details about an exception.
+See https://docs.platformio.org/page/projectconf/build_configurations.html
+
+
+--- Terminal on /dev/cu.usbmodem1101 | 115200 8-N-1
+--- Available filters and text transformations: colorize, debug, default, direct, esp32_exception_decoder, hexlify, log2file, nocontrol, printable, send_on_enter, time
+--- More details at https://bit.ly/pio-monitor-filters
+--- Quit: Ctrl+C | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H
+
+╔════════════════════════════════════════════════════════════════╗
+║   ESP32 MCP2515 CAN LIBRARY COMPREHENSIVE TEST SUITE          ║
+╚════════════════════════════════════════════════════════════════╝
+
+Configuration:
+  Test Mode:        LOOPBACK (Self-Test)
+  SPI Pins:         MOSI=11, MISO=13, SCK=12, CS=37, INT=36
+  CAN Speed:        50 kbps
+  CAN Clock:        16 MHz
+  Interrupt Tests:  ENABLED
+  Stress Tests:     ENABLED
+
+╔════════════════════════════════════════════════════════════════╗
+║  Starting Comprehensive Test Suite                            ║
+╚════════════════════════════════════════════════════════════════╝
+
+
+┌────────────────────────────────────────────────────────────────┐
+│ INITIALIZATION TESTS                                           │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] MCP2515 Reset
+  ✓ PASS - Reset successful
+
+[TEST] Set Bitrate
+  ✓ PASS - Bitrate configured successfully
+
+[TEST] Set Operating Mode
+  ✓ PASS - Loopback mode set
+
+[TEST] Check Initialization Status
+  ✓ PASS - Library initialized successfully
+
+┌────────────────────────────────────────────────────────────────┐
+│ OPERATING MODE TESTS                                           │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Configuration Mode
+  ✓ PASS - Mode set successfully
+
+[TEST] Normal Mode
+  ✓ PASS - Mode set successfully
+
+[TEST] Listen-Only Mode
+  ✓ PASS - Mode set successfully
+
+[TEST] Loopback Mode
+  ✓ PASS - Mode set successfully
+
+[TEST] Sleep Mode
+  ✗ FAIL - Mode set successfully
+
+[TEST] Normal One-Shot Mode
+  ✗ FAIL - Mode set successfully
+
+┌────────────────────────────────────────────────────────────────┐
+│ BITRATE CONFIGURATION TESTS                                    │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] 5 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 10 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 20 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 50 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 100 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 125 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 250 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 500 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 1000 kbps
+  ✓ PASS - Bitrate configured
+
+┌────────────────────────────────────────────────────────────────┐
+│ FILTER AND MASK TESTS                                          │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Set Mask 0 (Standard ID)
+  ✓ PASS - MASK0 set for standard IDs
+
+[TEST] Set Mask 1 (Extended ID)
+  ✓ PASS - MASK1 set for extended IDs
+
+[TEST] Set Filter 0 (Standard)
+  ✓ PASS - Filter set successfully
+
+[TEST] Set Filter 1 (Standard)
+  ✓ PASS - Filter set successfully
+
+[TEST] Set Filter 2 (Extended)
+  ✓ PASS - Filter set successfully
+
+[TEST] Set Filter 3 (Extended)
+  ✓ PASS - Filter set successfully
+
+[TEST] Set Filter 4 (Standard)
+  ✓ PASS - Filter set successfully
+
+[TEST] Set Filter 5 (Standard)
+  ✓ PASS - Filter set successfully
+
+┌────────────────────────────────────────────────────────────────┐
+│ FRAME TRANSMISSION TESTS                                       │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Send Standard Data Frame
+  ✓ PASS - Standard frame sent
+  [TX] ID: 0x00000123 [STD] DLC: 8 Data: 00 01 02 03 04 05 06 07 
+
+[TEST] Send Extended Data Frame
+  ✓ PASS - Extended frame sent
+  [TX] ID: 0x12345678 [EXT] DLC: 8 Data: FF FE FD FC FB FA F9 F8 
+
+[TEST] Send Standard Remote Frame
+  ✓ PASS - Standard RTR frame sent
+  [TX] ID: 0x00000456 [STD][RTR] DLC: 4 Data: FF FE FD FC 
+
+[TEST] Send Extended Remote Frame
+  ✓ PASS - Extended RTR frame sent
+  [TX] ID: 0x07654321 [EXT][RTR] DLC: 6 Data: FF FE FD FC FB FA 
+
+[TEST] Send Frame with DLC=0
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=1
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=2
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=3
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=4
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=5
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=6
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=7
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=8
+  ✓ PASS - Frame sent
+
+[TEST] Send to TX Buffer 0
+  ✓ PASS - TXB0 transmission
+
+[TEST] Send to TX Buffer 1
+  ✓ PASS - TXB1 transmission
+
+[TEST] Send to TX Buffer 2
+  ✓ PASS - TXB2 transmission
+
+┌────────────────────────────────────────────────────────────────┐
+│ FRAME RECEPTION TESTS                                          │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Check Receive Function
+  ✓ PASS - checkReceive() detected message
+
+[TEST] Read Message (Auto Buffer)
+  ✓ PASS - Message read successfully
+  [RX] ID: 0x00000123 [STD] DLC: 8 Data: 00 01 02 03 04 05 06 07 
+  Data integrity: FAIL
+
+[TEST] Read from RX Buffer 0
+  ✓ PASS - RXB0 read successful
+
+[TEST] Read with No Message Available
+  ✗ FAIL - ERROR_NOMSG returned correctly
+
+┌────────────────────────────────────────────────────────────────┐
+│ ERROR HANDLING TESTS                                           │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Get Error Flags
+  ✓ PASS - Error flags read
+  EFLG = 0x40
+    - RX0 Overflow
+
+[TEST] Check Error Function
+  ✓ PASS - Errors detected
+
+[TEST] Read RX Error Counter
+  ✓ PASS - RX error count read
+  REC = 0
+
+[TEST] Read TX Error Counter
+  ✓ PASS - TX error count read
+  TEC = 0
+
+[TEST] Clear RXnOVR Flags
+  ✓ PASS - Overflow flags cleared
+
+[TEST] Clear RXnOVR Function
+  ✓ PASS - RXnOVR cleared
+
+[TEST] Clear MERR Flag
+  ✓ PASS - MERR cleared
+
+[TEST] Clear ERRIF Flag
+  ✓ PASS - ERRIF cleared
+
+[TEST] Perform Error Recovery
+  ✓ PASS - Error recovery performed
+
+[TEST] Get Bus Status
+  ✓ PASS - Bus status read
+  CANSTAT = 0x4E
+
+┌────────────────────────────────────────────────────────────────┐
+│ INTERRUPT FUNCTION TESTS                                       │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Get Interrupt Flags
+  ✓ PASS - Interrupt flags read
+  CANINTF = 0x1E
+    - RX1 Interrupt
+    - TX0 Interrupt
+    - TX1 Interrupt
+    - TX2 Interrupt
+
+[TEST] Get Interrupt Mask
+  ✓ PASS - Interrupt mask read
+  CANINTE = 0xA3
+
+[TEST] Clear All Interrupts
+  ✓ PASS - All interrupts cleared
+
+[TEST] Clear TX Interrupts
+  ✓ PASS - TX interrupts cleared
+
+[TEST] Enable Interrupt Mode
+  ✓ PASS - Interrupt mode enabled
+
+[TEST] Disable Interrupt Mode
+  ✓ PASS - Interrupt mode disabled
+
+┌────────────────────────────────────────────────────────────────┐
+│ STATISTICS TESTS (ESP32-specific)                              │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Reset Statistics
+  ✓ PASS - Statistics reset
+
+[TEST] Generate TX Statistics
+  ✓ PASS - 10 frames sent
+
+[TEST] Get Statistics
+  ✓ PASS - Statistics retrieved
+  Statistics:
+    RX Frames:     0
+    TX Frames:     10
+    RX Errors:     0
+    TX Errors:     0
+    RX Overflow:   0
+    TX Timeouts:   0
+    Bus Errors:    0
+    Bus-Off Count: 0
+
+[TEST] Get RX Queue Count
+  ✓ PASS - Queue count retrieved
+  Queue count = 0
+
+┌────────────────────────────────────────────────────────────────┐
+│ STATUS FUNCTION TESTS                                          │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Get Status
+  ✓ PASS - Status read
+  Status = 0x0B
+    - RX0IF
+    - RX1IF
+
+┌────────────────────────────────────────────────────────────────┐
+│ STRESS TESTS                                                   │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] High-Speed TX Stress Test
+  Sent 2074 frames in 5000 ms (414.8 frames/sec)
+  Errors: 27848 (93.07%)
+  ✗ FAIL - Less than 10% errors
+
+[TEST] RX Buffer Overflow Test
+  Overflow DETECTED
+  ✓ PASS - Overflow test completed
+
+┌────────────────────────────────────────────────────────────────┐
+│ CLOCK OUTPUT TESTS                                             │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Disable CLKOUT
+  ✓ PASS - CLKOUT configured
+
+[TEST] CLKOUT Divide by 1
+  ✓ PASS - CLKOUT configured
+
+[TEST] CLKOUT Divide by 2
+  ✓ PASS - CLKOUT configured
+
+[TEST] CLKOUT Divide by 4
+  ✓ PASS - CLKOUT configured
+
+[TEST] CLKOUT Divide by 8
+  ✓ PASS - CLKOUT configured
+
+┌────────────────────────────────────────────────────────────────┐
+│ ADVANCED FEATURE TESTS                                         │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Read Message Queued (Non-blocking)
+  ✓ PASS - Queued read tested
+
+[TEST] Read Message Queued (With Timeout)
+  ✓ PASS - Queued read with timeout tested
+
+╔════════════════════════════════════════════════════════════════╗
+║                     FINAL TEST RESULTS                         ║
+╚════════════════════════════════════════════════════════════════╝
+
+  Total Tests:    77
+  Passed:         73 (94.8%)
+  Failed:         4 (5.2%)
+
+  ⚠ SOME TESTS FAILED ⚠
+
+Library Statistics:
+  RX Frames:      0
+  TX Frames:      2085
+  RX Errors:      0
+  TX Errors:      27867
+  RX Overflow:    0
+  Bus Errors:     0
+
+═══════════════════════════════════════════════════════════════════
+Disconnected (read failed: [Errno 6] Device not configured)
+Reconnecting to /dev/cu.usbmodem1101 
+Please build project in debug configuration to get more details about an exception.
+See https://docs.platformio.org/page/projectconf/build_configurations.html
+
+
+         Connected!
+
+╔════════════════════════════════════════════════════════════════╗
+║   ESP32 MCP2515 CAN LIBRARY COMPREHENSIVE TEST SUITE          ║
+╚════════════════════════════════════════════════════════════════╝
+
+Configuration:
+  Test Mode:        LOOPBACK (Self-Test)
+  SPI Pins:         MOSI=11, MISO=13, SCK=12, CS=37, INT=36
+  CAN Speed:        50 kbps
+  CAN Clock:        16 MHz
+  Interrupt Tests:  ENABLED
+  Stress Tests:     ENABLED
+
+╔════════════════════════════════════════════════════════════════╗
+║  Starting Comprehensive Test Suite                            ║
+╚════════════════════════════════════════════════════════════════╝
+
+
+┌────────────────────────────────────────────────────────────────┐
+│ INITIALIZATION TESTS                                           │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] MCP2515 Reset
+  ✓ PASS - Reset successful
+
+[TEST] Set Bitrate
+  ✓ PASS - Bitrate configured successfully
+
+[TEST] Set Operating Mode
+  ✓ PASS - Loopback mode set
+
+[TEST] Check Initialization Status
+  ✓ PASS - Library initialized successfully
+
+┌────────────────────────────────────────────────────────────────┐
+│ OPERATING MODE TESTS                                           │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Configuration Mode
+  ✓ PASS - Mode set successfully
+
+[TEST] Normal Mode
+  ✓ PASS - Mode set successfully
+
+[TEST] Listen-Only Mode
+  ✓ PASS - Mode set successfully
+
+[TEST] Loopback Mode
+  ✓ PASS - Mode set successfully
+
+[TEST] Sleep Mode
+  ✗ FAIL - Mode set successfully
+
+[TEST] Normal One-Shot Mode
+  ✗ FAIL - Mode set successfully
+
+┌────────────────────────────────────────────────────────────────┐
+│ BITRATE CONFIGURATION TESTS                                    │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] 5 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 10 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 20 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 50 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 100 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 125 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 250 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 500 kbps
+  ✓ PASS - Bitrate configured
+
+[TEST] 1000 kbps
+  ✓ PASS - Bitrate configured
+
+┌────────────────────────────────────────────────────────────────┐
+│ FILTER AND MASK TESTS                                          │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Set Mask 0 (Standard ID)
+  ✓ PASS - MASK0 set for standard IDs
+
+[TEST] Set Mask 1 (Extended ID)
+  ✓ PASS - MASK1 set for extended IDs
+
+[TEST] Set Filter 0 (Standard)
+  ✓ PASS - Filter set successfully
+
+[TEST] Set Filter 1 (Standard)
+  ✓ PASS - Filter set successfully
+
+[TEST] Set Filter 2 (Extended)
+  ✓ PASS - Filter set successfully
+
+[TEST] Set Filter 3 (Extended)
+  ✓ PASS - Filter set successfully
+
+[TEST] Set Filter 4 (Standard)
+  ✓ PASS - Filter set successfully
+
+[TEST] Set Filter 5 (Standard)
+  ✓ PASS - Filter set successfully
+
+┌────────────────────────────────────────────────────────────────┐
+│ FRAME TRANSMISSION TESTS                                       │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Send Standard Data Frame
+  ✓ PASS - Standard frame sent
+  [TX] ID: 0x00000123 [STD] DLC: 8 Data: 00 01 02 03 04 05 06 07 
+
+[TEST] Send Extended Data Frame
+  ✓ PASS - Extended frame sent
+  [TX] ID: 0x12345678 [EXT] DLC: 8 Data: FF FE FD FC FB FA F9 F8 
+
+[TEST] Send Standard Remote Frame
+  ✓ PASS - Standard RTR frame sent
+  [TX] ID: 0x00000456 [STD][RTR] DLC: 4 Data: FF FE FD FC 
+
+[TEST] Send Extended Remote Frame
+  ✓ PASS - Extended RTR frame sent
+  [TX] ID: 0x07654321 [EXT][RTR] DLC: 6 Data: FF FE FD FC FB FA 
+
+[TEST] Send Frame with DLC=0
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=1
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=2
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=3
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=4
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=5
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=6
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=7
+  ✓ PASS - Frame sent
+
+[TEST] Send Frame with DLC=8
+  ✓ PASS - Frame sent
+
+[TEST] Send to TX Buffer 0
+  ✓ PASS - TXB0 transmission
+
+[TEST] Send to TX Buffer 1
+  ✓ PASS - TXB1 transmission
+
+[TEST] Send to TX Buffer 2
+  ✓ PASS - TXB2 transmission
+
+┌────────────────────────────────────────────────────────────────┐
+│ FRAME RECEPTION TESTS                                          │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Check Receive Function
+  ✓ PASS - checkReceive() detected message
+
+[TEST] Read Message (Auto Buffer)
+  ✓ PASS - Message read successfully
+  [RX] ID: 0x00000123 [STD] DLC: 8 Data: 00 01 02 03 04 05 06 07 
+  Data integrity: FAIL
+
+[TEST] Read from RX Buffer 0
+  ✓ PASS - RXB0 read successful
+
+[TEST] Read with No Message Available
+  ✗ FAIL - ERROR_NOMSG returned correctly
+
+┌────────────────────────────────────────────────────────────────┐
+│ ERROR HANDLING TESTS                                           │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Get Error Flags
+  ✓ PASS - Error flags read
+  EFLG = 0x40
+    - RX0 Overflow
+
+[TEST] Check Error Function
+  ✓ PASS - Errors detected
+
+[TEST] Read RX Error Counter
+  ✓ PASS - RX error count read
+  REC = 0
+
+[TEST] Read TX Error Counter
+  ✓ PASS - TX error count read
+  TEC = 0
+
+[TEST] Clear RXnOVR Flags
+  ✓ PASS - Overflow flags cleared
+
+[TEST] Clear RXnOVR Function
+  ✓ PASS - RXnOVR cleared
+
+[TEST] Clear MERR Flag
+  ✓ PASS - MERR cleared
+
+[TEST] Clear ERRIF Flag
+  ✓ PASS - ERRIF cleared
+
+[TEST] Perform Error Recovery
+  ✓ PASS - Error recovery performed
+
+[TEST] Get Bus Status
+  ✓ PASS - Bus status read
+  CANSTAT = 0x4E
+
+┌────────────────────────────────────────────────────────────────┐
+│ INTERRUPT FUNCTION TESTS                                       │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Get Interrupt Flags
+  ✓ PASS - Interrupt flags read
+  CANINTF = 0x1E
+    - RX1 Interrupt
+    - TX0 Interrupt
+    - TX1 Interrupt
+    - TX2 Interrupt
+
+[TEST] Get Interrupt Mask
+  ✓ PASS - Interrupt mask read
+  CANINTE = 0xA3
+
+[TEST] Clear All Interrupts
+  ✓ PASS - All interrupts cleared
+
+[TEST] Clear TX Interrupts
+  ✓ PASS - TX interrupts cleared
+
+[TEST] Enable Interrupt Mode
+  ✓ PASS - Interrupt mode enabled
+
+[TEST] Disable Interrupt Mode
+  ✓ PASS - Interrupt mode disabled
+
+┌────────────────────────────────────────────────────────────────┐
+│ STATISTICS TESTS (ESP32-specific)                              │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Reset Statistics
+  ✓ PASS - Statistics reset
+
+[TEST] Generate TX Statistics
+  ✓ PASS - 10 frames sent
+
+[TEST] Get Statistics
+  ✓ PASS - Statistics retrieved
+  Statistics:
+    RX Frames:     0
+    TX Frames:     10
+    RX Errors:     0
+    TX Errors:     0
+    RX Overflow:   0
+    TX Timeouts:   0
+    Bus Errors:    0
+    Bus-Off Count: 0
+
+[TEST] Get RX Queue Count
+  ✓ PASS - Queue count retrieved
+  Queue count = 0
+
+┌────────────────────────────────────────────────────────────────┐
+│ STATUS FUNCTION TESTS                                          │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Get Status
+  ✓ PASS - Status read
+  Status = 0x0B
+    - RX0IF
+    - RX1IF
+
+┌────────────────────────────────────────────────────────────────┐
+│ STRESS TESTS                                                   │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] High-Speed TX Stress Test
+  Sent 2074 frames in 5000 ms (414.8 frames/sec)
+  Errors: 27842 (93.07%)
+  ✗ FAIL - Less than 10% errors
+
+[TEST] RX Buffer Overflow Test
+  Overflow DETECTED
+  ✓ PASS - Overflow test completed
+
+┌────────────────────────────────────────────────────────────────┐
+│ CLOCK OUTPUT TESTS                                             │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Disable CLKOUT
+  ✓ PASS - CLKOUT configured
+
+[TEST] CLKOUT Divide by 1
+  ✓ PASS - CLKOUT configured
+
+[TEST] CLKOUT Divide by 2
+  ✓ PASS - CLKOUT configured
+
+[TEST] CLKOUT Divide by 4
+  ✓ PASS - CLKOUT configured
+
+[TEST] CLKOUT Divide by 8
+  ✓ PASS - CLKOUT configured
+
+┌────────────────────────────────────────────────────────────────┐
+│ ADVANCED FEATURE TESTS                                         │
+└────────────────────────────────────────────────────────────────┘
+
+[TEST] Read Message Queued (Non-blocking)
+  ✓ PASS - Queued read tested
+
+[TEST] Read Message Queued (With Timeout)
+  ✓ PASS - Queued read with timeout tested
+
+╔════════════════════════════════════════════════════════════════╗
+║                     FINAL TEST RESULTS                         ║
+╚════════════════════════════════════════════════════════════════╝
+
+  Total Tests:    77
+  Passed:         73 (94.8%)
+  Failed:         4 (5.2%)
+
+  ⚠ SOME TESTS FAILED ⚠
+
+Library Statistics:
+  RX Frames:      0
+  TX Frames:      2085
+  RX Errors:      0
+  TX Errors:      27861
+  RX Overflow:    0
+  Bus Errors:     0
+
+═══════════════════════════════════════════════════════════════════

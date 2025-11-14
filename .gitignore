@@ -1,0 +1,21 @@
+# Mac system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+*.o
+*.a
+*.bin
+*.elf
+*.hex
+
+# Arduino build directory
+build/
