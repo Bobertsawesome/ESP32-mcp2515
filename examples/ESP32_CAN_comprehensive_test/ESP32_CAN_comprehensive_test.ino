@@ -35,8 +35,8 @@
 #define SPI_INT_PIN     4     // Interrupt pin (set to -1 to disable interrupts)
 
 // CAN Bus Configuration
-#define CAN_SPEED       CAN_125KBPS   // CAN bus speed
-#define CAN_CLOCK       MCP_16MHZ     // MCP2515 crystal frequency (8MHz, 16MHz, or 20MHz)
+#define CONFIG_CAN_SPEED       CAN_125KBPS   // CAN bus speed
+#define CONFIG_CAN_CLOCK       MCP_16MHZ     // MCP2515 crystal frequency (8MHz, 16MHz, or 20MHz)
 
 // ============================================================================
 // TEST CONFIGURATION
@@ -98,13 +98,15 @@ test_stats_t test_stats = {0, 0, 0, 0};
 // MCP2515 instance
 MCP2515 mcp2515(SPI_CS_PIN);
 
-// Test helper functions
+// Forward declarations for helper functions
 void printTestHeader(const char* test_name);
 void printTestResult(bool passed, const char* message = nullptr);
 void printSectionHeader(const char* section_name);
 void printStatistics();
 bool waitForFrame(struct can_frame* frame, uint32_t timeout_ms);
 void printFrame(const struct can_frame* frame, bool is_tx);
+const char* getSpeedName(CAN_SPEED speed);
+const char* getClockName(CAN_CLOCK clock);
 
 // ============================================================================
 // SETUP
@@ -130,8 +132,8 @@ void setup() {
     }
     Serial.printf("  SPI Pins:         MOSI=%d, MISO=%d, SCK=%d, CS=%d, INT=%d\n",
                   SPI_MOSI_PIN, SPI_MISO_PIN, SPI_SCK_PIN, SPI_CS_PIN, SPI_INT_PIN);
-    Serial.printf("  CAN Speed:        %s\n", getSpeedName(CAN_SPEED));
-    Serial.printf("  CAN Clock:        %s\n", getClockName(CAN_CLOCK));
+    Serial.printf("  CAN Speed:        %s\n", getSpeedName(CONFIG_CAN_SPEED));
+    Serial.printf("  CAN Clock:        %s\n", getClockName(CONFIG_CAN_CLOCK));
     Serial.printf("  Interrupt Tests:  %s\n", ENABLE_INTERRUPT_TESTS ? "ENABLED" : "DISABLED");
     Serial.printf("  Stress Tests:     %s\n", ENABLE_STRESS_TESTS ? "ENABLED" : "DISABLED");
     Serial.println();
@@ -206,7 +208,7 @@ void testInitialization() {
 
     // Test 2: Set bitrate
     printTestHeader("Set Bitrate");
-    err = mcp2515.setBitrate(CAN_SPEED, CAN_CLOCK);
+    err = mcp2515.setBitrate(CONFIG_CAN_SPEED, CONFIG_CAN_CLOCK);
     printTestResult(err == MCP2515::ERROR_OK, "Bitrate configured successfully");
 
     // Test 3: Set normal mode (or loopback for self-test)
@@ -284,7 +286,7 @@ void testBitrateConfiguration() {
 
         MCP2515::ERROR err = mcp2515.setConfigMode();
         if (err == MCP2515::ERROR_OK) {
-            err = mcp2515.setBitrate(speeds[i], CAN_CLOCK);
+            err = mcp2515.setBitrate(speeds[i], CONFIG_CAN_CLOCK);
         }
 
         printTestResult(err == MCP2515::ERROR_OK, "Bitrate configured");
@@ -293,7 +295,7 @@ void testBitrateConfiguration() {
 
     // Restore original bitrate
     mcp2515.setConfigMode();
-    mcp2515.setBitrate(CAN_SPEED, CAN_CLOCK);
+    mcp2515.setBitrate(CONFIG_CAN_SPEED, CONFIG_CAN_CLOCK);
     if (TEST_MODE == TEST_MODE_LOOPBACK) {
         mcp2515.setLoopbackMode();
     } else {
