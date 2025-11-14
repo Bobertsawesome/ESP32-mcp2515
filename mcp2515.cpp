@@ -1,4 +1,28 @@
-#include "Arduino.h"
+/**
+ * @file mcp2515.cpp
+ * @brief ESP32-optimized MCP2515 CAN Controller Implementation
+ *
+ * Refactored implementation with ESP32 native features
+ */
+
+#ifdef ESP32
+    #ifdef ARDUINO
+        #include "Arduino.h"
+    #else
+        #include <esp_system.h>
+        #include <esp_timer.h>
+        #define millis() (esp_timer_get_time() / 1000ULL)
+        #define delay(ms) vTaskDelay(pdMS_TO_TICKS(ms))
+        #define digitalWrite(pin, val) gpio_set_level((gpio_num_t)(pin), (val))
+        #define pinMode(pin, mode) /* handled in init */
+        #define HIGH 1
+        #define LOW 0
+        #define OUTPUT GPIO_MODE_OUTPUT
+    #endif
+#else
+    #include "Arduino.h"
+#endif
+
 #include "mcp2515.h"
 
 const struct MCP2515::TXBn_REGS MCP2515::TXB[MCP2515::N_TXBUFFERS] = {
@@ -12,8 +36,27 @@ const struct MCP2515::RXBn_REGS MCP2515::RXB[N_RXBUFFERS] = {
     {MCP_RXB1CTRL, MCP_RXB1SIDH, MCP_RXB1DATA, CANINTF_RX1IF}
 };
 
+// ===========================================
+// Constructors and Destructor
+// ===========================================
+
+#ifdef ARDUINO
 MCP2515::MCP2515(const uint8_t _CS, const uint32_t _SPI_CLOCK, SPIClass * _SPI)
 {
+#ifdef ESP32
+    initialized = false;
+    use_interrupts = false;
+    spi_mutex = NULL;
+    isr_semaphore = NULL;
+    rx_queue = NULL;
+    isr_task_handle = NULL;
+    int_pin = GPIO_NUM_NC;
+    memset(&statistics, 0, sizeof(statistics));
+
+    // Create mutex for thread safety
+    spi_mutex = xSemaphoreCreateMutex();
+#endif
+
     if (_SPI != nullptr) {
         SPIn = _SPI;
     }
@@ -26,16 +69,186 @@ MCP2515::MCP2515(const uint8_t _CS, const uint32_t _SPI_CLOCK, SPIClass * _SPI)
     SPI_CLOCK = _SPI_CLOCK;
     pinMode(SPICS, OUTPUT);
     digitalWrite(SPICS, HIGH);
+
+#ifdef ESP32
+    initialized = true;
+#endif
+}
+#else
+MCP2515::MCP2515(const uint8_t _CS, const uint32_t _SPI_CLOCK)
+{
+    SPICS = _CS;
+    SPI_CLOCK = _SPI_CLOCK;
+
+    initialized = false;
+    use_interrupts = false;
+    spi_mutex = NULL;
+    isr_semaphore = NULL;
+    rx_queue = NULL;
+    isr_task_handle = NULL;
+    int_pin = GPIO_NUM_NC;
+    memset(&statistics, 0, sizeof(statistics));
+
+    // Configure CS pin
+    gpio_config_t io_conf = {};
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = (1ULL << SPICS);
+    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+    gpio_config(&io_conf);
+    gpio_set_level((gpio_num_t)SPICS, 1);
+}
+#endif
+
+#ifdef ESP32
+MCP2515::MCP2515(const mcp2515_esp32_config_t* config)
+{
+    initialized = false;
+    use_interrupts = config->use_interrupts;
+    spi_mutex = NULL;
+    isr_semaphore = NULL;
+    rx_queue = NULL;
+    isr_task_handle = NULL;
+    int_pin = config->pins.irq;
+    memset(&statistics, 0, sizeof(statistics));
+
+    SPICS = config->pins.cs;
+    SPI_CLOCK = config->spi_clock_speed;
+
+    // Initialize SPI
+    if (initSPI(config) != ERROR_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "SPI initialization failed");
+        return;
+    }
+
+    // Initialize interrupts if enabled
+    if (use_interrupts && int_pin != GPIO_NUM_NC) {
+        if (initInterrupts(int_pin) != ERROR_OK) {
+            ESP_LOGE(MCP2515_LOG_TAG, "Interrupt initialization failed");
+            return;
+        }
+    }
+
+    initialized = true;
 }
 
+MCP2515::MCP2515(gpio_num_t cs_pin, gpio_num_t int_pin)
+{
+    initialized = false;
+    use_interrupts = (int_pin != GPIO_NUM_NC);
+    spi_mutex = NULL;
+    isr_semaphore = NULL;
+    rx_queue = NULL;
+    isr_task_handle = NULL;
+    this->int_pin = int_pin;
+    memset(&statistics, 0, sizeof(statistics));
+
+    SPICS = cs_pin;
+    SPI_CLOCK = MCP2515_SPI_CLOCK_SPEED;
+
+    // Create default config
+    mcp2515_esp32_config_t config = {
+        .spi_host = MCP2515_SPI_HOST,
+        .spi_clock_speed = MCP2515_SPI_CLOCK_SPEED,
+        .pins = {
+            .miso = MCP2515_DEFAULT_MISO,
+            .mosi = MCP2515_DEFAULT_MOSI,
+            .sclk = MCP2515_DEFAULT_SCK,
+            .cs = cs_pin,
+            .irq = int_pin
+        },
+        .use_interrupts = use_interrupts,
+        .use_mutex = true,
+        .rx_queue_size = MCP2515_RX_QUEUE_SIZE,
+        .isr_task_priority = MCP2515_ISR_TASK_PRIORITY,
+        .isr_task_stack_size = MCP2515_ISR_TASK_STACK_SIZE
+    };
+
+    // Initialize SPI
+    if (initSPI(&config) != ERROR_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "SPI initialization failed");
+        return;
+    }
+
+    // Initialize interrupts if enabled
+    if (use_interrupts && int_pin != GPIO_NUM_NC) {
+        if (initInterrupts(int_pin) != ERROR_OK) {
+            ESP_LOGE(MCP2515_LOG_TAG, "Interrupt initialization failed");
+            return;
+        }
+    }
+
+    initialized = true;
+}
+#endif
+
+MCP2515::~MCP2515()
+{
+#ifdef ESP32
+    // Stop ISR task
+    if (isr_task_handle != NULL) {
+        vTaskDelete(isr_task_handle);
+        isr_task_handle = NULL;
+    }
+
+    // Remove interrupt handler
+    if (int_pin != GPIO_NUM_NC) {
+        gpio_isr_handler_remove(int_pin);
+        gpio_uninstall_isr_service();
+    }
+
+    // Delete FreeRTOS objects
+    if (spi_mutex != NULL) {
+        vSemaphoreDelete(spi_mutex);
+    }
+    if (isr_semaphore != NULL) {
+        vSemaphoreDelete(isr_semaphore);
+    }
+    if (rx_queue != NULL) {
+        vQueueDelete(rx_queue);
+    }
+
+#ifndef ARDUINO
+    // Remove SPI device
+    if (spi_handle != NULL) {
+        spi_bus_remove_device(spi_handle);
+    }
+#endif
+
+    initialized = false;
+#endif
+}
+
+// ===========================================
+// SPI Communication Methods
+// ===========================================
+
 void MCP2515::startSPI() {
+#ifdef ESP32
+    #ifdef ARDUINO
+        SPIn->beginTransaction(SPISettings(SPI_CLOCK, MSBFIRST, SPI_MODE0));
+        digitalWrite(SPICS, LOW);
+    #else
+        // Native ESP32: CS is handled automatically by driver
+    #endif
+#else
     SPIn->beginTransaction(SPISettings(SPI_CLOCK, MSBFIRST, SPI_MODE0));
     digitalWrite(SPICS, LOW);
+#endif
 }
 
 void MCP2515::endSPI() {
+#ifdef ESP32
+    #ifdef ARDUINO
+        digitalWrite(SPICS, HIGH);
+        SPIn->endTransaction();
+    #else
+        // Native ESP32: CS is handled automatically by driver
+    #endif
+#else
     digitalWrite(SPICS, HIGH);
     SPIn->endTransaction();
+#endif
 }
 
 MCP2515::ERROR MCP2515::reset(void)
@@ -778,7 +991,333 @@ uint8_t MCP2515::errorCountRX(void)
     return readRegister(MCP_REC);
 }
 
-uint8_t MCP2515::errorCountTX(void)                             
+uint8_t MCP2515::errorCountTX(void)
 {
     return readRegister(MCP_TEC);
 }
+
+#ifdef ESP32
+// ===========================================
+// ESP32-Specific Implementations
+// ===========================================
+
+MCP2515::ERROR MCP2515::initSPI(const mcp2515_esp32_config_t* config)
+{
+#ifdef ARDUINO
+    // Arduino-ESP32 uses SPIClass
+    return ERROR_OK;
+#else
+    // Native ESP-IDF SPI initialization
+    spi_bus_config_t buscfg = {
+        .mosi_io_num = config->pins.mosi,
+        .miso_io_num = config->pins.miso,
+        .sclk_io_num = config->pins.sclk,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = MCP2515_MAX_TRANSFER_SIZE,
+    };
+
+    spi_device_interface_config_t devcfg = {
+        .command_bits = 0,
+        .address_bits = 0,
+        .dummy_bits = 0,
+        .mode = 0,  // SPI mode 0
+        .duty_cycle_pos = 0,
+        .cs_ena_pretrans = 0,
+        .cs_ena_posttrans = 0,
+        .clock_speed_hz = config->spi_clock_speed,
+        .input_delay_ns = 0,
+        .spics_io_num = config->pins.cs,
+        .flags = 0,
+        .queue_size = MCP2515_SPI_QUEUE_SIZE,
+        .pre_cb = NULL,
+        .post_cb = NULL,
+    };
+
+    // Initialize SPI bus
+    esp_err_t ret = spi_bus_initialize(config->spi_host, &buscfg, MCP2515_SPI_DMA_CHAN);
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(MCP2515_LOG_TAG, "SPI bus init failed: %s", esp_err_to_name(ret));
+        return ERROR_FAILINIT;
+    }
+
+    // Add device to SPI bus
+    ret = spi_bus_add_device(config->spi_host, &devcfg, &spi_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "SPI device add failed: %s", esp_err_to_name(ret));
+        return ERROR_FAILINIT;
+    }
+
+    // Create mutex if requested
+    if (config->use_mutex) {
+        spi_mutex = xSemaphoreCreateMutex();
+        if (spi_mutex == NULL) {
+            ESP_LOGE(MCP2515_LOG_TAG, "Failed to create SPI mutex");
+            return ERROR_FAILINIT;
+        }
+    }
+
+    ESP_LOGI(MCP2515_LOG_TAG, "SPI initialized successfully");
+    return ERROR_OK;
+#endif
+}
+
+MCP2515::ERROR MCP2515::initInterrupts(gpio_num_t int_pin)
+{
+    if (int_pin == GPIO_NUM_NC) {
+        return ERROR_OK;
+    }
+
+    // Configure interrupt pin
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << int_pin),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = MCP2515_INT_EDGE,
+    };
+
+    esp_err_t ret = gpio_config(&io_conf);
+    if (ret != ESP_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "GPIO config failed");
+        return ERROR_FAILINIT;
+    }
+
+    // Create semaphore for ISR notification
+    isr_semaphore = xSemaphoreCreateBinary();
+    if (isr_semaphore == NULL) {
+        ESP_LOGE(MCP2515_LOG_TAG, "Failed to create ISR semaphore");
+        return ERROR_FAILINIT;
+    }
+
+    // Create RX queue
+    rx_queue = xQueueCreate(MCP2515_RX_QUEUE_SIZE, sizeof(struct can_frame));
+    if (rx_queue == NULL) {
+        ESP_LOGE(MCP2515_LOG_TAG, "Failed to create RX queue");
+        return ERROR_FAILINIT;
+    }
+
+    // Install GPIO ISR service
+    ret = gpio_install_isr_service(0);
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(MCP2515_LOG_TAG, "GPIO ISR service install failed");
+        return ERROR_FAILINIT;
+    }
+
+    // Add ISR handler
+    ret = gpio_isr_handler_add(int_pin, isrHandler, (void*)this);
+    if (ret != ESP_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "GPIO ISR handler add failed");
+        return ERROR_FAILINIT;
+    }
+
+    // Create ISR processing task
+    BaseType_t task_ret = xTaskCreatePinnedToCore(
+        isrTask,
+        "mcp2515_isr",
+        MCP2515_ISR_TASK_STACK_SIZE,
+        (void*)this,
+        MCP2515_ISR_TASK_PRIORITY,
+        &isr_task_handle,
+        MCP2515_ISR_TASK_CORE
+    );
+
+    if (task_ret != pdPASS) {
+        ESP_LOGE(MCP2515_LOG_TAG, "Failed to create ISR task");
+        return ERROR_FAILINIT;
+    }
+
+    ESP_LOGI(MCP2515_LOG_TAG, "Interrupts initialized on GPIO %d", int_pin);
+    return ERROR_OK;
+}
+
+void IRAM_ATTR MCP2515::isrHandler(void* arg)
+{
+    MCP2515* mcp = static_cast<MCP2515*>(arg);
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    // Give semaphore to wake up ISR task
+    xSemaphoreGiveFromISR(mcp->isr_semaphore, &xHigherPriorityTaskWoken);
+
+    if (xHigherPriorityTaskWoken == pdTRUE) {
+        portYIELD_FROM_ISR();
+    }
+}
+
+void MCP2515::isrTask(void* pvParameters)
+{
+    MCP2515* mcp = static_cast<MCP2515*>(pvParameters);
+
+    ESP_LOGI(MCP2515_LOG_TAG, "ISR task started");
+
+    while (true) {
+        // Wait for ISR semaphore
+        if (xSemaphoreTake(mcp->isr_semaphore, portMAX_DELAY) == pdTRUE) {
+            mcp->processInterrupts();
+        }
+    }
+}
+
+void MCP2515::processInterrupts()
+{
+    uint8_t irq = getInterrupts();
+
+    // Handle RX interrupts
+    if (irq & (CANINTF_RX0IF | CANINTF_RX1IF)) {
+        struct can_frame frame;
+
+        while (readMessage(&frame) == ERROR_OK) {
+            statistics.rx_frames++;
+
+            // Add to queue
+            if (xQueueSend(rx_queue, &frame, 0) != pdTRUE) {
+                statistics.rx_overflow++;
+                ESP_LOGW(MCP2515_LOG_TAG, "RX queue full, frame dropped");
+            }
+        }
+    }
+
+    // Handle error interrupts
+    if (irq & CANINTF_ERRIF) {
+        statistics.bus_errors++;
+        uint8_t eflg = getErrorFlags();
+
+        if (eflg & EFLG_RX0OVR) statistics.rx_overflow++;
+        if (eflg & EFLG_RX1OVR) statistics.rx_overflow++;
+        if (eflg & EFLG_TXBO) statistics.bus_off_count++;
+
+        clearERRIF();
+
+#if MCP2515_AUTO_BUS_OFF_RECOVERY
+        if (eflg & EFLG_TXBO) {
+            performErrorRecovery();
+        }
+#endif
+    }
+
+    // Handle TX complete interrupts
+    if (irq & (CANINTF_TX0IF | CANINTF_TX1IF | CANINTF_TX2IF)) {
+        clearTXInterrupts();
+    }
+}
+
+MCP2515::ERROR MCP2515::acquireMutex(TickType_t timeout)
+{
+    if (spi_mutex == NULL) {
+        return ERROR_OK;  // No mutex configured
+    }
+
+    if (xSemaphoreTake(spi_mutex, timeout) != pdTRUE) {
+        return ERROR_MUTEX;
+    }
+
+    return ERROR_OK;
+}
+
+void MCP2515::releaseMutex()
+{
+    if (spi_mutex != NULL) {
+        xSemaphoreGive(spi_mutex);
+    }
+}
+
+MCP2515::ERROR MCP2515::readMessageQueued(struct can_frame *frame, uint32_t timeout_ms)
+{
+    if (!use_interrupts || rx_queue == NULL) {
+        // Fall back to polling
+        return readMessage(frame);
+    }
+
+    TickType_t timeout_ticks = (timeout_ms == 0) ? 0 : pdMS_TO_TICKS(timeout_ms);
+
+    if (xQueueReceive(rx_queue, frame, timeout_ticks) == pdTRUE) {
+        return ERROR_OK;
+    }
+
+    return (timeout_ms == 0) ? ERROR_NOMSG : ERROR_TIMEOUT;
+}
+
+uint32_t MCP2515::getRxQueueCount(void)
+{
+    if (rx_queue == NULL) {
+        return 0;
+    }
+    return uxQueueMessagesWaiting(rx_queue);
+}
+
+void MCP2515::getStatistics(mcp2515_statistics_t* stats)
+{
+    if (stats != NULL) {
+        memcpy(stats, &statistics, sizeof(mcp2515_statistics_t));
+    }
+}
+
+void MCP2515::resetStatistics(void)
+{
+    memset(&statistics, 0, sizeof(statistics));
+}
+
+bool MCP2515::isInitialized(void)
+{
+    return initialized;
+}
+
+MCP2515::ERROR MCP2515::setInterruptMode(bool enable)
+{
+    use_interrupts = enable;
+
+    if (enable && int_pin != GPIO_NUM_NC) {
+        gpio_intr_enable(int_pin);
+    } else if (int_pin != GPIO_NUM_NC) {
+        gpio_intr_disable(int_pin);
+    }
+
+    return ERROR_OK;
+}
+
+MCP2515::ERROR MCP2515::performErrorRecovery(void)
+{
+    ESP_LOGW(MCP2515_LOG_TAG, "Performing error recovery");
+
+    // Get error counts
+    uint8_t rec = errorCountRX();
+    uint8_t tec = errorCountTX();
+
+    ESP_LOGI(MCP2515_LOG_TAG, "Error counts - RX: %d, TX: %d", rec, tec);
+
+    // Clear all error flags
+    clearRXnOVR();
+    clearMERR();
+    clearERRIF();
+
+    // Reset if in bus-off state
+    uint8_t eflg = getErrorFlags();
+    if (eflg & EFLG_TXBO) {
+        ESP_LOGW(MCP2515_LOG_TAG, "Bus-off detected, resetting controller");
+
+        // Save current mode
+        uint8_t current_mode = readRegister(MCP_CANSTAT) & CANSTAT_OPMOD;
+
+        // Reset controller
+        ERROR err = reset();
+        if (err != ERROR_OK) {
+            return err;
+        }
+
+        // Restore mode
+        if (current_mode == CANCTRL_REQOP_NORMAL) {
+            return setNormalMode();
+        } else if (current_mode == CANCTRL_REQOP_LISTENONLY) {
+            return setListenOnlyMode();
+        }
+    }
+
+    return ERROR_OK;
+}
+
+uint8_t MCP2515::getBusStatus(void)
+{
+    return readRegister(MCP_CANSTAT);
+}
+
+#endif /* ESP32 */
