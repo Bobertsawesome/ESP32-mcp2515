@@ -88,16 +88,34 @@ MCP2515::MCP2515(const uint8_t _CS, const uint32_t _SPI_CLOCK)
     rx_queue = NULL;
     isr_task_handle = NULL;
     int_pin = GPIO_NUM_NC;
+    spi_handle = NULL;  // Initialize to NULL for native ESP-IDF mode
     memset(&statistics, 0, sizeof(statistics));
 
-    // Configure CS pin
-    gpio_config_t io_conf = {};
-    io_conf.mode = GPIO_MODE_OUTPUT;
-    io_conf.pin_bit_mask = (1ULL << SPICS);
-    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
-    gpio_config(&io_conf);
-    gpio_set_level((gpio_num_t)SPICS, 1);
+    // Create default config for native ESP-IDF SPI initialization
+    mcp2515_esp32_config_t config = {
+        .spi_host = MCP2515_SPI_HOST,
+        .spi_clock_speed = _SPI_CLOCK,
+        .pins = {
+            .miso = MCP2515_DEFAULT_MISO,
+            .mosi = MCP2515_DEFAULT_MOSI,
+            .sclk = MCP2515_DEFAULT_SCK,
+            .cs = (gpio_num_t)_CS,
+            .irq = GPIO_NUM_NC
+        },
+        .use_interrupts = false,
+        .use_mutex = false,
+        .rx_queue_size = 0,
+        .isr_task_priority = 0,
+        .isr_task_stack_size = 0
+    };
+
+    // Initialize SPI for native ESP-IDF
+    if (initSPI(&config) != ERROR_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "SPI initialization failed in basic constructor");
+        return;
+    }
+
+    initialized = true;
 }
 #endif
 
@@ -111,6 +129,7 @@ MCP2515::MCP2515(const mcp2515_esp32_config_t* config)
     rx_queue = NULL;
     isr_task_handle = NULL;
     int_pin = config->pins.irq;
+    spi_handle = NULL;  // Initialize to NULL before initSPI
     memset(&statistics, 0, sizeof(statistics));
 
     SPICS = config->pins.cs;
@@ -142,6 +161,7 @@ MCP2515::MCP2515(gpio_num_t cs_pin, gpio_num_t int_pin)
     rx_queue = NULL;
     isr_task_handle = NULL;
     this->int_pin = int_pin;
+    spi_handle = NULL;  // Initialize to NULL before initSPI
     memset(&statistics, 0, sizeof(statistics));
 
     SPICS = cs_pin;
@@ -192,10 +212,11 @@ MCP2515::~MCP2515()
         isr_task_handle = NULL;
     }
 
-    // Remove interrupt handler
+    // Remove interrupt handler (but don't uninstall service - it's global!)
     if (int_pin != GPIO_NUM_NC) {
         gpio_isr_handler_remove(int_pin);
-        gpio_uninstall_isr_service();
+        // NOTE: NOT calling gpio_uninstall_isr_service() because it's a global
+        // operation that would break other GPIO ISRs. Let ESP-IDF manage it.
     }
 
     // Delete FreeRTOS objects
