@@ -55,8 +55,8 @@
 // ===========================
 
 /** Default SPI host for MCP2515
- * - ESP32 classic: VSPI_HOST (SPI3) or fallback to 1
- * - ESP32-S2/S3/C3/C6/H2: SPI2_HOST or SPI3_HOST or fallback to 1
+ * - ESP32 classic: VSPI_HOST (SPI3) or fallback to SPI2
+ * - ESP32-S2/S3/C3/C6/H2: SPI2_HOST or SPI3_HOST
  * Note: SPI peripheral numbers: SPI1=0 (flash), SPI2=1 (HSPI), SPI3=2 (VSPI)
  */
 #ifndef MCP2515_SPI_HOST
@@ -70,9 +70,9 @@
         // Use SPI2_HOST if available
         #define MCP2515_SPI_HOST        SPI2_HOST
     #else
-        // Ultimate fallback: Use peripheral 1 (SPI2/HSPI)
-        // This works on all ESP32 variants
-        #define MCP2515_SPI_HOST        1
+        // Ultimate fallback: Cast to spi_host_device_t enum
+        // Use SPI2 (peripheral 1) which works on all ESP32 variants
+        #define MCP2515_SPI_HOST        ((spi_host_device_t)1)
     #endif
 #endif
 
