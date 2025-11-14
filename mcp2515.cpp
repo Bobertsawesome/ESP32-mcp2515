@@ -51,6 +51,7 @@ MCP2515::MCP2515(const uint8_t _CS, const uint32_t _SPI_CLOCK, SPIClass * _SPI)
     rx_queue = NULL;
     isr_task_handle = NULL;
     int_pin = GPIO_NUM_NC;
+    spi_handle = NULL;  // Initialize to NULL for Arduino-ESP32 mode
     memset(&statistics, 0, sizeof(statistics));
 
     // Create mutex for thread safety
@@ -223,13 +224,36 @@ MCP2515::~MCP2515()
 // SPI Communication Methods
 // ===========================================
 
+#if defined(ESP32) && !defined(ARDUINO)
+// Native ESP-IDF SPI transfer helper
+inline uint8_t MCP2515::spiTransfer(uint8_t data) {
+    spi_transaction_t t;
+    memset(&t, 0, sizeof(t));
+    t.length = 8;  // 8 bits
+    t.tx_data[0] = data;
+    t.rx_data[0] = 0;
+    t.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
+
+    esp_err_t ret = spi_device_transmit(spi_handle, &t);
+    if (ret != ESP_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "SPI transfer failed");
+        return 0xFF;
+    }
+    return t.rx_data[0];
+}
+#define SPI_TRANSFER(x) spiTransfer(x)
+#else
+// Arduino SPI transfer
+#define SPI_TRANSFER(x) SPIn->transfer(x)
+#endif
+
 void MCP2515::startSPI() {
 #ifdef ESP32
     #ifdef ARDUINO
         SPIn->beginTransaction(SPISettings(SPI_CLOCK, MSBFIRST, SPI_MODE0));
         digitalWrite(SPICS, LOW);
     #else
-        // Native ESP32: CS is handled automatically by driver
+        // Native ESP32: CS is handled automatically by driver, nothing to do
     #endif
 #else
     SPIn->beginTransaction(SPISettings(SPI_CLOCK, MSBFIRST, SPI_MODE0));
@@ -243,7 +267,7 @@ void MCP2515::endSPI() {
         digitalWrite(SPICS, HIGH);
         SPIn->endTransaction();
     #else
-        // Native ESP32: CS is handled automatically by driver
+        // Native ESP32: CS is handled automatically by driver, nothing to do
     #endif
 #else
     digitalWrite(SPICS, HIGH);
@@ -254,7 +278,7 @@ void MCP2515::endSPI() {
 MCP2515::ERROR MCP2515::reset(void)
 {
     startSPI();
-    SPIn->transfer(INSTRUCTION_RESET);
+    SPI_TRANSFER(INSTRUCTION_RESET);
     endSPI();
 
     delay(10);
@@ -305,9 +329,9 @@ MCP2515::ERROR MCP2515::reset(void)
 uint8_t MCP2515::readRegister(const REGISTER reg)
 {
     startSPI();
-    SPIn->transfer(INSTRUCTION_READ);
-    SPIn->transfer(reg);
-    uint8_t ret = SPIn->transfer(0x00);
+    SPI_TRANSFER(INSTRUCTION_READ);
+    SPI_TRANSFER(reg);
+    uint8_t ret = SPI_TRANSFER(0x00);
     endSPI();
 
     return ret;
@@ -316,11 +340,11 @@ uint8_t MCP2515::readRegister(const REGISTER reg)
 void MCP2515::readRegisters(const REGISTER reg, uint8_t values[], const uint8_t n)
 {
     startSPI();
-    SPIn->transfer(INSTRUCTION_READ);
-    SPIn->transfer(reg);
+    SPI_TRANSFER(INSTRUCTION_READ);
+    SPI_TRANSFER(reg);
     // mcp2515 has auto-increment of address-pointer
     for (uint8_t i=0; i<n; i++) {
-        values[i] = SPIn->transfer(0x00);
+        values[i] = SPI_TRANSFER(0x00);
     }
     endSPI();
 }
@@ -328,19 +352,19 @@ void MCP2515::readRegisters(const REGISTER reg, uint8_t values[], const uint8_t 
 void MCP2515::setRegister(const REGISTER reg, const uint8_t value)
 {
     startSPI();
-    SPIn->transfer(INSTRUCTION_WRITE);
-    SPIn->transfer(reg);
-    SPIn->transfer(value);
+    SPI_TRANSFER(INSTRUCTION_WRITE);
+    SPI_TRANSFER(reg);
+    SPI_TRANSFER(value);
     endSPI();
 }
 
 void MCP2515::setRegisters(const REGISTER reg, const uint8_t values[], const uint8_t n)
 {
     startSPI();
-    SPIn->transfer(INSTRUCTION_WRITE);
-    SPIn->transfer(reg);
+    SPI_TRANSFER(INSTRUCTION_WRITE);
+    SPI_TRANSFER(reg);
     for (uint8_t i=0; i<n; i++) {
-        SPIn->transfer(values[i]);
+        SPI_TRANSFER(values[i]);
     }
     endSPI();
 }
@@ -348,18 +372,18 @@ void MCP2515::setRegisters(const REGISTER reg, const uint8_t values[], const uin
 void MCP2515::modifyRegister(const REGISTER reg, const uint8_t mask, const uint8_t data)
 {
     startSPI();
-    SPIn->transfer(INSTRUCTION_BITMOD);
-    SPIn->transfer(reg);
-    SPIn->transfer(mask);
-    SPIn->transfer(data);
+    SPI_TRANSFER(INSTRUCTION_BITMOD);
+    SPI_TRANSFER(reg);
+    SPI_TRANSFER(mask);
+    SPI_TRANSFER(data);
     endSPI();
 }
 
 uint8_t MCP2515::getStatus(void)
 {
     startSPI();
-    SPIn->transfer(INSTRUCTION_READ_STATUS);
-    uint8_t i = SPIn->transfer(0x00);
+    SPI_TRANSFER(INSTRUCTION_READ_STATUS);
+    uint8_t i = SPI_TRANSFER(0x00);
     endSPI();
 
     return i;
@@ -833,8 +857,15 @@ MCP2515::ERROR MCP2515::sendMessage(const TXBn txbn, const struct can_frame *fra
 
     uint8_t ctrl = readRegister(txbuf->CTRL);
     if ((ctrl & (TXB_ABTF | TXB_MLOA | TXB_TXERR)) != 0) {
+#ifdef ESP32
+        statistics.tx_errors++;
+#endif
         return ERROR_FAILTX;
     }
+
+#ifdef ESP32
+    statistics.tx_frames++;
+#endif
     return ERROR_OK;
 }
 
@@ -854,6 +885,9 @@ MCP2515::ERROR MCP2515::sendMessage(const struct can_frame *frame)
         }
     }
 
+#ifdef ESP32
+    statistics.tx_errors++;
+#endif
     return ERROR_ALLTXBUSY;
 }
 

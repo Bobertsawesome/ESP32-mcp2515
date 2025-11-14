@@ -573,6 +573,10 @@ class MCP2515
         ERROR acquireMutex(TickType_t timeout);
         void releaseMutex();
         void processInterrupts();
+#ifndef ARDUINO
+        // Native ESP-IDF SPI transfer
+        inline uint8_t spiTransfer(uint8_t data);
+#endif
 #endif
 
     public:
