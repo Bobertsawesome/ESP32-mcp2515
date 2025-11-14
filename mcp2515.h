@@ -545,6 +545,7 @@ class MCP2515
         TaskHandle_t        isr_task_handle;///< Handle for ISR processing task
         gpio_num_t          int_pin;        ///< Interrupt pin number
         mcp2515_statistics_t statistics;    ///< Frame statistics
+        portMUX_TYPE        statistics_mutex; ///< Spinlock for statistics protection
         bool                initialized;    ///< Initialization status
         bool                use_interrupts; ///< Interrupt mode enabled
         volatile bool       shutdown_requested; ///< Flag to signal ISR task to stop

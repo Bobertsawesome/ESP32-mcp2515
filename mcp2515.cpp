@@ -54,9 +54,10 @@ MCP2515::MCP2515(const uint8_t _CS, const uint32_t _SPI_CLOCK, SPIClass * _SPI)
     spi_handle = NULL;  // Initialize to NULL for Arduino-ESP32 mode
     shutdown_requested = false;
     memset(&statistics, 0, sizeof(statistics));
+    statistics_mutex = portMUX_INITIALIZER_UNLOCKED;
 
-    // Create mutex for thread safety
-    spi_mutex = xSemaphoreCreateMutex();
+    // Create recursive mutex for thread safety (allows nested locking)
+    spi_mutex = xSemaphoreCreateRecursiveMutex();
 #endif
 
     if (_SPI != nullptr) {
@@ -92,6 +93,7 @@ MCP2515::MCP2515(const uint8_t _CS, const uint32_t _SPI_CLOCK)
     spi_handle = NULL;  // Initialize to NULL for native ESP-IDF mode
     shutdown_requested = false;
     memset(&statistics, 0, sizeof(statistics));
+    statistics_mutex = portMUX_INITIALIZER_UNLOCKED;
 
     // Create default config for native ESP-IDF SPI initialization
     mcp2515_esp32_config_t config = {
@@ -134,6 +136,7 @@ MCP2515::MCP2515(const mcp2515_esp32_config_t* config)
     spi_handle = NULL;  // Initialize to NULL before initSPI
     shutdown_requested = false;
     memset(&statistics, 0, sizeof(statistics));
+    statistics_mutex = portMUX_INITIALIZER_UNLOCKED;
 
     SPICS = config->pins.cs;
     SPI_CLOCK = config->spi_clock_speed;
@@ -167,6 +170,7 @@ MCP2515::MCP2515(gpio_num_t cs_pin, gpio_num_t int_pin)
     spi_handle = NULL;  // Initialize to NULL before initSPI
     shutdown_requested = false;
     memset(&statistics, 0, sizeof(statistics));
+    statistics_mutex = portMUX_INITIALIZER_UNLOCKED;
 
     SPICS = cs_pin;
     SPI_CLOCK = MCP2515_SPI_CLOCK_SPEED;
@@ -374,17 +378,35 @@ MCP2515::ERROR MCP2515::reset(void)
 
 uint8_t MCP2515::readRegister(const REGISTER reg)
 {
+#ifdef ESP32
+    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in readRegister");
+        return 0xFF;
+    }
+#endif
+
     startSPI();
     SPI_TRANSFER(INSTRUCTION_READ);
     SPI_TRANSFER(reg);
     uint8_t ret = SPI_TRANSFER(0x00);
     endSPI();
 
+#ifdef ESP32
+    releaseMutex();
+#endif
+
     return ret;
 }
 
 void MCP2515::readRegisters(const REGISTER reg, uint8_t values[], const uint8_t n)
 {
+#ifdef ESP32
+    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in readRegisters");
+        return;
+    }
+#endif
+
     startSPI();
     SPI_TRANSFER(INSTRUCTION_READ);
     SPI_TRANSFER(reg);
@@ -393,19 +415,41 @@ void MCP2515::readRegisters(const REGISTER reg, uint8_t values[], const uint8_t 
         values[i] = SPI_TRANSFER(0x00);
     }
     endSPI();
+
+#ifdef ESP32
+    releaseMutex();
+#endif
 }
 
 void MCP2515::setRegister(const REGISTER reg, const uint8_t value)
 {
+#ifdef ESP32
+    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in setRegister");
+        return;
+    }
+#endif
+
     startSPI();
     SPI_TRANSFER(INSTRUCTION_WRITE);
     SPI_TRANSFER(reg);
     SPI_TRANSFER(value);
     endSPI();
+
+#ifdef ESP32
+    releaseMutex();
+#endif
 }
 
 void MCP2515::setRegisters(const REGISTER reg, const uint8_t values[], const uint8_t n)
 {
+#ifdef ESP32
+    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in setRegisters");
+        return;
+    }
+#endif
+
     startSPI();
     SPI_TRANSFER(INSTRUCTION_WRITE);
     SPI_TRANSFER(reg);
@@ -413,24 +457,50 @@ void MCP2515::setRegisters(const REGISTER reg, const uint8_t values[], const uin
         SPI_TRANSFER(values[i]);
     }
     endSPI();
+
+#ifdef ESP32
+    releaseMutex();
+#endif
 }
 
 void MCP2515::modifyRegister(const REGISTER reg, const uint8_t mask, const uint8_t data)
 {
+#ifdef ESP32
+    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in modifyRegister");
+        return;
+    }
+#endif
+
     startSPI();
     SPI_TRANSFER(INSTRUCTION_BITMOD);
     SPI_TRANSFER(reg);
     SPI_TRANSFER(mask);
     SPI_TRANSFER(data);
     endSPI();
+
+#ifdef ESP32
+    releaseMutex();
+#endif
 }
 
 uint8_t MCP2515::getStatus(void)
 {
+#ifdef ESP32
+    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in getStatus");
+        return 0xFF;
+    }
+#endif
+
     startSPI();
     SPI_TRANSFER(INSTRUCTION_READ_STATUS);
     uint8_t i = SPI_TRANSFER(0x00);
     endSPI();
+
+#ifdef ESP32
+    releaseMutex();
+#endif
 
     return i;
 }
@@ -912,13 +982,17 @@ MCP2515::ERROR MCP2515::sendMessage(const TXBn txbn, const struct can_frame *fra
     uint8_t ctrl = readRegister(txbuf->CTRL);
     if ((ctrl & (TXB_ABTF | TXB_MLOA | TXB_TXERR)) != 0) {
 #ifdef ESP32
+        portENTER_CRITICAL(&statistics_mutex);
         statistics.tx_errors++;
+        portEXIT_CRITICAL(&statistics_mutex);
 #endif
         return ERROR_FAILTX;
     }
 
 #ifdef ESP32
+    portENTER_CRITICAL(&statistics_mutex);
     statistics.tx_frames++;
+    portEXIT_CRITICAL(&statistics_mutex);
 #endif
     return ERROR_OK;
 }
@@ -929,20 +1003,41 @@ MCP2515::ERROR MCP2515::sendMessage(const struct can_frame *frame)
         return ERROR_FAILTX;
     }
 
+#ifdef ESP32
+    // Acquire mutex for entire buffer selection + send operation
+    // This prevents race condition where two tasks select same buffer
+    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in sendMessage");
+        portENTER_CRITICAL(&statistics_mutex);
+        statistics.tx_errors++;
+        portEXIT_CRITICAL(&statistics_mutex);
+        return ERROR_FAILTX;
+    }
+#endif
+
     TXBn txBuffers[N_TXBUFFERS] = {TXB0, TXB1, TXB2};
+    ERROR result = ERROR_ALLTXBUSY;
 
     for (int i=0; i<N_TXBUFFERS; i++) {
         const struct TXBn_REGS *txbuf = &TXB[txBuffers[i]];
-        uint8_t ctrlval = readRegister(txbuf->CTRL);
+        uint8_t ctrlval = readRegister(txbuf->CTRL);  // Recursive mutex - OK
         if ( (ctrlval & TXB_TXREQ) == 0 ) {
-            return sendMessage(txBuffers[i], frame);
+            result = sendMessage(txBuffers[i], frame);  // Recursive mutex - OK
+            break;
         }
     }
 
 #ifdef ESP32
-    statistics.tx_errors++;
+    releaseMutex();
+
+    if (result == ERROR_ALLTXBUSY) {
+        portENTER_CRITICAL(&statistics_mutex);
+        statistics.tx_errors++;
+        portEXIT_CRITICAL(&statistics_mutex);
+    }
 #endif
-    return ERROR_ALLTXBUSY;
+
+    return result;
 }
 
 MCP2515::ERROR MCP2515::readMessage(const RXBn rxbn, struct can_frame *frame)
@@ -1136,11 +1231,11 @@ MCP2515::ERROR MCP2515::initSPI(const mcp2515_esp32_config_t* config)
         return ERROR_FAILINIT;
     }
 
-    // Create mutex if requested
+    // Create recursive mutex if requested (allows nested locking)
     if (config->use_mutex) {
-        spi_mutex = xSemaphoreCreateMutex();
+        spi_mutex = xSemaphoreCreateRecursiveMutex();
         if (spi_mutex == NULL) {
-            ESP_LOGE(MCP2515_LOG_TAG, "Failed to create SPI mutex");
+            ESP_LOGE(MCP2515_LOG_TAG, "Failed to create SPI recursive mutex");
             return ERROR_FAILINIT;
         }
     }
@@ -1266,11 +1361,15 @@ void MCP2515::processInterrupts()
         struct can_frame frame;
 
         while (readMessage(&frame) == ERROR_OK) {
+            portENTER_CRITICAL(&statistics_mutex);
             statistics.rx_frames++;
+            portEXIT_CRITICAL(&statistics_mutex);
 
             // Add to queue
             if (xQueueSend(rx_queue, &frame, 0) != pdTRUE) {
+                portENTER_CRITICAL(&statistics_mutex);
                 statistics.rx_overflow++;
+                portEXIT_CRITICAL(&statistics_mutex);
                 ESP_LOGW(MCP2515_LOG_TAG, "RX queue full, frame dropped");
             }
         }
@@ -1278,12 +1377,14 @@ void MCP2515::processInterrupts()
 
     // Handle error interrupts
     if (irq & CANINTF_ERRIF) {
-        statistics.bus_errors++;
         uint8_t eflg = getErrorFlags();
 
+        portENTER_CRITICAL(&statistics_mutex);
+        statistics.bus_errors++;
         if (eflg & EFLG_RX0OVR) statistics.rx_overflow++;
         if (eflg & EFLG_RX1OVR) statistics.rx_overflow++;
         if (eflg & EFLG_TXBO) statistics.bus_off_count++;
+        portEXIT_CRITICAL(&statistics_mutex);
 
         clearERRIF();
 
@@ -1306,7 +1407,7 @@ MCP2515::ERROR MCP2515::acquireMutex(TickType_t timeout)
         return ERROR_OK;  // No mutex configured
     }
 
-    if (xSemaphoreTake(spi_mutex, timeout) != pdTRUE) {
+    if (xSemaphoreTakeRecursive(spi_mutex, timeout) != pdTRUE) {
         return ERROR_MUTEX;
     }
 
@@ -1316,7 +1417,7 @@ MCP2515::ERROR MCP2515::acquireMutex(TickType_t timeout)
 void MCP2515::releaseMutex()
 {
     if (spi_mutex != NULL) {
-        xSemaphoreGive(spi_mutex);
+        xSemaphoreGiveRecursive(spi_mutex);
     }
 }
 
