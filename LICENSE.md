@@ -1,7 +1,8 @@
 The MIT License (MIT)
 
 Copyright (c) 2013 Seeed Technology Inc.
-Copyright (c) 2016 Dmitry
+Copyright (c) 2016 Dmitry (autowp)
+Copyright (c) 2025 ESP32-MCP2515 Contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
