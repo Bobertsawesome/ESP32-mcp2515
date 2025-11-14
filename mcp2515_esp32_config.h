@@ -32,20 +32,21 @@
 // ===========================
 
 // Detect ESP32 chip variant for proper pin and peripheral mapping
-#if CONFIG_IDF_TARGET_ESP32
-    #define MCP2515_CHIP_ESP32_CLASSIC  1
-#elif CONFIG_IDF_TARGET_ESP32S2
-    #define MCP2515_CHIP_ESP32S2        1
-#elif CONFIG_IDF_TARGET_ESP32S3
+// Try ESP-IDF CONFIG macros first, then Arduino macros
+#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(ARDUINO_ESP32S3_DEV)
     #define MCP2515_CHIP_ESP32S3        1
-#elif CONFIG_IDF_TARGET_ESP32C3
+#elif defined(CONFIG_IDF_TARGET_ESP32S2) || defined(ARDUINO_ESP32S2_DEV)
+    #define MCP2515_CHIP_ESP32S2        1
+#elif defined(CONFIG_IDF_TARGET_ESP32C3) || defined(ARDUINO_ESP32C3_DEV)
     #define MCP2515_CHIP_ESP32C3        1
-#elif CONFIG_IDF_TARGET_ESP32C6
+#elif defined(CONFIG_IDF_TARGET_ESP32C6) || defined(ARDUINO_ESP32C6_DEV)
     #define MCP2515_CHIP_ESP32C6        1
-#elif CONFIG_IDF_TARGET_ESP32H2
+#elif defined(CONFIG_IDF_TARGET_ESP32H2) || defined(ARDUINO_ESP32H2_DEV)
     #define MCP2515_CHIP_ESP32H2        1
+#elif defined(CONFIG_IDF_TARGET_ESP32) || defined(ARDUINO_ARCH_ESP32)
+    #define MCP2515_CHIP_ESP32_CLASSIC  1
 #else
-    // Fallback: Assume classic ESP32 for Arduino IDE without explicit target
+    // Final fallback: Assume classic ESP32
     #define MCP2515_CHIP_ESP32_CLASSIC  1
 #endif
 
@@ -54,21 +55,24 @@
 // ===========================
 
 /** Default SPI host for MCP2515
- * - ESP32 classic: VSPI_HOST (SPI3)
- * - ESP32-S2/S3/C3/C6/H2: SPI2_HOST or SPI3_HOST
+ * - ESP32 classic: VSPI_HOST (SPI3) or fallback to 1
+ * - ESP32-S2/S3/C3/C6/H2: SPI2_HOST or SPI3_HOST or fallback to 1
+ * Note: SPI peripheral numbers: SPI1=0 (flash), SPI2=1 (HSPI), SPI3=2 (VSPI)
  */
 #ifndef MCP2515_SPI_HOST
-    #if defined(MCP2515_CHIP_ESP32_CLASSIC) && defined(VSPI_HOST)
-        // Classic ESP32 with VSPI_HOST available
+    #if defined(VSPI_HOST)
+        // Use VSPI_HOST if available (ESP32 Classic, older Arduino cores)
         #define MCP2515_SPI_HOST        VSPI_HOST
     #elif defined(SPI3_HOST)
         // Use SPI3_HOST if available (newer ESP-IDF/Arduino)
         #define MCP2515_SPI_HOST        SPI3_HOST
     #elif defined(SPI2_HOST)
-        // Fallback to SPI2_HOST
+        // Use SPI2_HOST if available
         #define MCP2515_SPI_HOST        SPI2_HOST
     #else
-        #error "No SPI host definition found for this ESP32 variant"
+        // Ultimate fallback: Use peripheral 1 (SPI2/HSPI)
+        // This works on all ESP32 variants
+        #define MCP2515_SPI_HOST        1
     #endif
 #endif
 
