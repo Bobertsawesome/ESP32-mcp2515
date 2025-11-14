@@ -2,11 +2,16 @@
 #define CAN_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-typedef unsigned char __u8;
-typedef unsigned short __u16;
-typedef unsigned long __u32;
+// ESP32-optimized type definitions
+typedef uint8_t  __u8;
+typedef uint16_t __u16;
+typedef uint32_t __u32;
 
 
 /* special address description flags for the CAN_ID */
@@ -39,7 +44,11 @@ typedef __u32 canid_t;
 struct can_frame {
                canid_t can_id;  /* 32 bit CAN_ID + EFF/RTR/ERR flags */
                __u8    can_dlc; /* frame payload length in byte (0 .. CAN_MAX_DLEN) */
-    alignas(8) __u8    data[CAN_MAX_DLEN];
+    alignas(8) __u8    data[CAN_MAX_DLEN] __attribute__((aligned(8)));
 };
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* CAN_H_ */

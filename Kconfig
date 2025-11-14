@@ -1,0 +1,195 @@
+menu "MCP2515 CAN Controller Configuration"
+
+    config MCP2515_SPI_HOST
+        int "SPI Host"
+        range 0 2
+        default 2
+        help
+            SPI host to use for MCP2515:
+            0 = SPI1_HOST (Reserved for flash)
+            1 = SPI2_HOST (HSPI)
+            2 = SPI3_HOST (VSPI) - Default
+
+    config MCP2515_SPI_CLOCK_SPEED
+        int "SPI Clock Speed (Hz)"
+        range 1000000 10000000
+        default 10000000
+        help
+            SPI clock speed in Hz. MCP2515 supports up to 10 MHz.
+
+    config MCP2515_USE_SPI_DMA
+        bool "Use SPI DMA"
+        default y
+        help
+            Enable DMA for SPI transfers to improve performance.
+
+    menu "GPIO Pin Configuration"
+
+        config MCP2515_DEFAULT_MOSI
+            int "MOSI Pin"
+            range 0 39
+            default 23
+            help
+                SPI MOSI pin (VSPI default: GPIO 23)
+
+        config MCP2515_DEFAULT_MISO
+            int "MISO Pin"
+            range 0 39
+            default 19
+            help
+                SPI MISO pin (VSPI default: GPIO 19)
+
+        config MCP2515_DEFAULT_SCK
+            int "SCK Pin"
+            range 0 39
+            default 18
+            help
+                SPI SCK pin (VSPI default: GPIO 18)
+
+        config MCP2515_DEFAULT_CS
+            int "CS Pin"
+            range 0 39
+            default 5
+            help
+                SPI Chip Select pin (default: GPIO 5)
+
+        config MCP2515_DEFAULT_INT
+            int "Interrupt Pin"
+            range -1 39
+            default 4
+            help
+                MCP2515 interrupt pin (default: GPIO 4, -1 to disable)
+
+    endmenu
+
+    menu "FreeRTOS Configuration"
+
+        config MCP2515_USE_MUTEX
+            bool "Use Mutex for Thread Safety"
+            default y
+            help
+                Enable mutex protection for thread-safe operations.
+
+        config MCP2515_MUTEX_TIMEOUT
+            int "Mutex Timeout (ms)"
+            range 1 1000
+            default 100
+            depends on MCP2515_USE_MUTEX
+            help
+                Timeout in milliseconds for mutex acquisition.
+
+        config MCP2515_RX_QUEUE_SIZE
+            int "RX Queue Size"
+            range 4 128
+            default 32
+            help
+                Size of FreeRTOS queue for received CAN frames.
+
+        config MCP2515_ISR_TASK_PRIORITY
+            int "ISR Task Priority"
+            range 1 25
+            default 23
+            help
+                Priority of ISR processing task (1-25, higher = more priority).
+
+        config MCP2515_ISR_TASK_STACK_SIZE
+            int "ISR Task Stack Size (bytes)"
+            range 2048 8192
+            default 4096
+            help
+                Stack size for ISR processing task.
+
+        config MCP2515_ISR_TASK_CORE
+            int "ISR Task Core Affinity"
+            range -1 1
+            default -1
+            help
+                CPU core for ISR task:
+                -1 = No affinity (any core)
+                 0 = Core 0
+                 1 = Core 1
+
+    endmenu
+
+    menu "Interrupt Configuration"
+
+        config MCP2515_USE_INTERRUPTS
+            bool "Enable Interrupt-Driven Reception"
+            default y
+            help
+                Use interrupts for CAN frame reception instead of polling.
+
+        config MCP2515_ISR_IN_IRAM
+            bool "Place ISR in IRAM"
+            default y
+            depends on MCP2515_USE_INTERRUPTS
+            help
+                Place interrupt handler in IRAM for lower latency.
+
+    endmenu
+
+    menu "Feature Configuration"
+
+        config MCP2515_ENABLE_STATISTICS
+            bool "Enable Statistics Tracking"
+            default y
+            help
+                Track TX/RX frame counts, errors, and bus status.
+
+        config MCP2515_ENABLE_ERROR_RECOVERY
+            bool "Enable Error Recovery"
+            default y
+            help
+                Automatic error detection and recovery mechanisms.
+
+        config MCP2515_AUTO_BUS_OFF_RECOVERY
+            bool "Automatic Bus-Off Recovery"
+            default y
+            depends on MCP2515_ENABLE_ERROR_RECOVERY
+            help
+                Automatically recover from bus-off conditions.
+
+        config MCP2515_USE_REGISTER_CACHE
+            bool "Use Register Caching"
+            default n
+            help
+                Cache frequently read registers to reduce SPI traffic.
+                May improve performance but uses more RAM.
+
+    endmenu
+
+    menu "Performance Optimization"
+
+        config MCP2515_OPTIMIZE_SPEED
+            bool "Optimize for Speed"
+            default y
+            help
+                Enable compiler optimizations for speed over size.
+
+        config MCP2515_MAX_TRANSFER_SIZE
+            int "Maximum SPI Transfer Size (bytes)"
+            range 32 128
+            default 64
+            help
+                Maximum size for single SPI transfer.
+
+    endmenu
+
+    menu "Logging Configuration"
+
+        config MCP2515_LOG_LEVEL
+            int "Log Level"
+            range 0 5
+            default 3
+            help
+                Log verbosity level:
+                0 = None
+                1 = Error
+                2 = Warning
+                3 = Info
+                4 = Debug
+                5 = Verbose
+
+    endmenu
+
+endmenu
