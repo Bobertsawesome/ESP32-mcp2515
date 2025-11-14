@@ -547,6 +547,7 @@ class MCP2515
         mcp2515_statistics_t statistics;    ///< Frame statistics
         bool                initialized;    ///< Initialization status
         bool                use_interrupts; ///< Interrupt mode enabled
+        volatile bool       shutdown_requested; ///< Flag to signal ISR task to stop
 #endif
 
     private:

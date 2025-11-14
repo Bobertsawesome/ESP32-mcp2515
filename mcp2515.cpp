@@ -52,6 +52,7 @@ MCP2515::MCP2515(const uint8_t _CS, const uint32_t _SPI_CLOCK, SPIClass * _SPI)
     isr_task_handle = NULL;
     int_pin = GPIO_NUM_NC;
     spi_handle = NULL;  // Initialize to NULL for Arduino-ESP32 mode
+    shutdown_requested = false;
     memset(&statistics, 0, sizeof(statistics));
 
     // Create mutex for thread safety
@@ -89,6 +90,7 @@ MCP2515::MCP2515(const uint8_t _CS, const uint32_t _SPI_CLOCK)
     isr_task_handle = NULL;
     int_pin = GPIO_NUM_NC;
     spi_handle = NULL;  // Initialize to NULL for native ESP-IDF mode
+    shutdown_requested = false;
     memset(&statistics, 0, sizeof(statistics));
 
     // Create default config for native ESP-IDF SPI initialization
@@ -130,6 +132,7 @@ MCP2515::MCP2515(const mcp2515_esp32_config_t* config)
     isr_task_handle = NULL;
     int_pin = config->pins.irq;
     spi_handle = NULL;  // Initialize to NULL before initSPI
+    shutdown_requested = false;
     memset(&statistics, 0, sizeof(statistics));
 
     SPICS = config->pins.cs;
@@ -162,6 +165,7 @@ MCP2515::MCP2515(gpio_num_t cs_pin, gpio_num_t int_pin)
     isr_task_handle = NULL;
     this->int_pin = int_pin;
     spi_handle = NULL;  // Initialize to NULL before initSPI
+    shutdown_requested = false;
     memset(&statistics, 0, sizeof(statistics));
 
     SPICS = cs_pin;
@@ -206,34 +210,55 @@ MCP2515::MCP2515(gpio_num_t cs_pin, gpio_num_t int_pin)
 MCP2515::~MCP2515()
 {
 #ifdef ESP32
-    // Stop ISR task
+    // Signal ISR task to stop
+    shutdown_requested = true;
+
+    // Wake up ISR task if it's waiting on semaphore
+    if (isr_semaphore != NULL) {
+        xSemaphoreGive(isr_semaphore);
+    }
+
+    // Wait for ISR task to finish (with timeout)
     if (isr_task_handle != NULL) {
+        // Wait up to 100ms for task to exit cleanly
+        for (int i = 0; i < 10; i++) {
+            eTaskState state = eTaskGetState(isr_task_handle);
+            if (state == eDeleted || state == eInvalid) {
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        // Force delete if still running
         vTaskDelete(isr_task_handle);
         isr_task_handle = NULL;
     }
 
-    // Remove interrupt handler (but don't uninstall service - it's global!)
+    // NOW safe to remove interrupt handler
     if (int_pin != GPIO_NUM_NC) {
         gpio_isr_handler_remove(int_pin);
         // NOTE: NOT calling gpio_uninstall_isr_service() because it's a global
         // operation that would break other GPIO ISRs. Let ESP-IDF manage it.
     }
 
-    // Delete FreeRTOS objects
+    // NOW safe to delete FreeRTOS objects
     if (spi_mutex != NULL) {
         vSemaphoreDelete(spi_mutex);
+        spi_mutex = NULL;
     }
     if (isr_semaphore != NULL) {
         vSemaphoreDelete(isr_semaphore);
+        isr_semaphore = NULL;
     }
     if (rx_queue != NULL) {
         vQueueDelete(rx_queue);
+        rx_queue = NULL;
     }
 
 #ifndef ARDUINO
     // Remove SPI device
     if (spi_handle != NULL) {
         spi_bus_remove_device(spi_handle);
+        spi_handle = NULL;
     }
 #endif
 
@@ -804,11 +829,14 @@ void MCP2515::prepareId(uint8_t *buffer, const bool ext, const uint32_t id)
 
 MCP2515::ERROR MCP2515::setFilterMask(const MASK mask, const bool ext, const uint32_t ulData)
 {
+    // Save current mode
+    uint8_t current_mode = readRegister(MCP_CANSTAT) & CANSTAT_OPMOD;
+
     ERROR res = setConfigMode();
     if (res != ERROR_OK) {
         return res;
     }
-    
+
     uint8_t tbufdata[4];
     prepareId(tbufdata, ext, ulData);
 
@@ -821,12 +849,16 @@ MCP2515::ERROR MCP2515::setFilterMask(const MASK mask, const bool ext, const uin
     }
 
     setRegisters(reg, tbufdata, 4);
-    
-    return ERROR_OK;
+
+    // Restore original mode
+    return setMode((CANCTRL_REQOP_MODE)current_mode);
 }
 
 MCP2515::ERROR MCP2515::setFilter(const RXF num, const bool ext, const uint32_t ulData)
 {
+    // Save current mode
+    uint8_t current_mode = readRegister(MCP_CANSTAT) & CANSTAT_OPMOD;
+
     ERROR res = setConfigMode();
     if (res != ERROR_OK) {
         return res;
@@ -849,7 +881,8 @@ MCP2515::ERROR MCP2515::setFilter(const RXF num, const bool ext, const uint32_t 
     prepareId(tbufdata, ext, ulData);
     setRegisters(reg, tbufdata, 4);
 
-    return ERROR_OK;
+    // Restore original mode
+    return setMode((CANCTRL_REQOP_MODE)current_mode);
 }
 
 MCP2515::ERROR MCP2515::sendMessage(const TXBn txbn, const struct can_frame *frame)
@@ -1189,6 +1222,12 @@ MCP2515::ERROR MCP2515::initInterrupts(gpio_num_t int_pin)
 void IRAM_ATTR MCP2515::isrHandler(void* arg)
 {
     MCP2515* mcp = static_cast<MCP2515*>(arg);
+
+    // Null check - if semaphore not ready yet or already deleted, return
+    if (mcp->isr_semaphore == NULL) {
+        return;
+    }
+
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
     // Give semaphore to wake up ISR task
@@ -1205,12 +1244,17 @@ void MCP2515::isrTask(void* pvParameters)
 
     ESP_LOGI(MCP2515_LOG_TAG, "ISR task started");
 
-    while (true) {
-        // Wait for ISR semaphore
-        if (xSemaphoreTake(mcp->isr_semaphore, portMAX_DELAY) == pdTRUE) {
-            mcp->processInterrupts();
+    while (!mcp->shutdown_requested) {
+        // Wait for ISR semaphore with timeout to allow checking shutdown flag
+        if (xSemaphoreTake(mcp->isr_semaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
+            // Check shutdown flag again before processing
+            if (!mcp->shutdown_requested) {
+                mcp->processInterrupts();
+            }
         }
     }
+
+    ESP_LOGI(MCP2515_LOG_TAG, "ISR task exiting");
 }
 
 void MCP2515::processInterrupts()
