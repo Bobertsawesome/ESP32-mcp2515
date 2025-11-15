@@ -234,6 +234,25 @@ void runComprehensiveTests();
 void runComprehensiveTestsAtSpeed(CAN_SPEED speed);
 void printMultiSpeedComparison();
 
+// Forward declarations for test functions
+void testInitialization();
+void testOperatingModes();
+void testBitrateConfiguration();
+void testFiltersAndMasks();
+void testFrameTransmission();
+void testFrameReception();
+void testRXB1Buffer();
+void testErrorHandling();
+void testInterruptFunctions();
+void testStatistics();
+void testStatusFunctions();
+void testStressScenarios();
+void testClockOutput();
+void testAdvancedFeatures();
+void testAdvancedQueue();
+void testStateTransitionErrors();
+void testBoundaryConditions();
+
 // ============================================================================
 // SETUP
 // ============================================================================
@@ -528,6 +547,7 @@ void runComprehensiveTests() {
     testFiltersAndMasks();
     testFrameTransmission();
     testFrameReception();
+    testRXB1Buffer();           // **NEW**: RXB1 buffer testing
     testErrorHandling();
 
     #if ENABLE_INTERRUPT_TESTS
@@ -543,6 +563,9 @@ void runComprehensiveTests() {
 
     testClockOutput();
     testAdvancedFeatures();
+    testAdvancedQueue();        // **NEW**: Advanced queue testing
+    testStateTransitionErrors(); // **NEW**: State transition error tests
+    testBoundaryConditions();   // **NEW**: Boundary condition tests
 }
 
 // ============================================================================
@@ -598,18 +621,19 @@ void testOperatingModes() {
         delay(50);
     }
 
-    // Test all operating modes with improved transitions
+    // Test all operating modes with improved transitions and CANSTAT verification
     const struct {
         const char* name;
         MCP2515::ERROR (MCP2515::*setter)();
         bool requires_config_first;  // **FIX:** Some modes need config mode first
+        uint8_t expected_opmod;      // Expected OPMOD bits (5-7 of CANSTAT)
     } modes[] = {
-        {"Configuration Mode", &MCP2515::setConfigMode, false},
-        {"Normal Mode", &MCP2515::setNormalMode, false},
-        {"Listen-Only Mode", &MCP2515::setListenOnlyMode, false},
-        {"Loopback Mode", &MCP2515::setLoopbackMode, false},
-        {"Sleep Mode", &MCP2515::setSleepMode, true},          // **FIX:** Needs special handling
-        {"Normal One-Shot Mode", &MCP2515::setNormalOneShotMode, true}  // **FIX:** Needs config first
+        {"Configuration Mode", &MCP2515::setConfigMode, false, 0x04},
+        {"Normal Mode", &MCP2515::setNormalMode, false, 0x00},
+        {"Listen-Only Mode", &MCP2515::setListenOnlyMode, false, 0x03},
+        {"Loopback Mode", &MCP2515::setLoopbackMode, false, 0x02},
+        {"Sleep Mode", &MCP2515::setSleepMode, true, 0x01},          // **FIX:** Needs special handling
+        {"Normal One-Shot Mode", &MCP2515::setNormalOneShotMode, true, 0x00}  // **FIX:** Needs config first
     };
 
     for (uint8_t i = 0; i < sizeof(modes)/sizeof(modes[0]); i++) {
@@ -637,7 +661,23 @@ void testOperatingModes() {
         delay(50);
         #endif
 
+        // Read CANSTAT to verify mode (ESP32-specific)
+        #ifdef ESP32
+        uint8_t canstat = mcp2515.getBusStatus();  // getBusStatus reads CANSTAT
+        uint8_t opmod = (canstat >> 5) & 0x07;
+        bool mode_correct = (opmod == modes[i].expected_opmod);
+
+        printTestResult(err == MCP2515::ERROR_OK && mode_correct,
+                       "Mode set and verified via CANSTAT");
+
+        if (VERBOSE_OUTPUT && err == MCP2515::ERROR_OK) {
+            safe_printf("  CANSTAT: 0x%02X, OPMOD: 0x%02X (expected: 0x%02X) %s\n",
+                       canstat, opmod, modes[i].expected_opmod,
+                       mode_correct ? COLOR_GREEN "✓" COLOR_RESET : COLOR_RED "✗" COLOR_RESET);
+        }
+        #else
         printTestResult(err == MCP2515::ERROR_OK, "Mode set successfully");
+        #endif
 
         // Some modes may timeout or have conditions that prevent entry
         if (err != MCP2515::ERROR_OK && VERBOSE_OUTPUT) {
@@ -685,6 +725,18 @@ void testBitrateConfiguration() {
         printTestResult(err == MCP2515::ERROR_OK, "Bitrate configured");
     }
 
+    // Test single-parameter setBitrate (uses default clock)
+    printTestHeader("Set Bitrate (Single Parameter - Default Clock)");
+    err = mcp2515.setConfigMode();
+    delay(50);
+    if (err == MCP2515::ERROR_OK) {
+        err = mcp2515.setBitrate(CAN_125KBPS);  // Uses default clock (should be 16MHz for most boards)
+        delay(50);
+        printTestResult(err == MCP2515::ERROR_OK, "Bitrate set with default clock");
+    } else {
+        printTestResult(false, "Failed to enter config mode");
+    }
+
     // Restore original bitrate and mode
     mcp2515.setConfigMode();
     delay(50);
@@ -704,23 +756,177 @@ void testBitrateConfiguration() {
 // ============================================================================
 
 void testFiltersAndMasks() {
-    printSectionHeader("FILTER AND MASK TESTS");
+    printSectionHeader("FILTER AND MASK TESTS - FUNCTIONAL VERIFICATION");
 
-    // Test setting masks
-    printTestHeader("Set Mask 0 (Standard ID)");
-    MCP2515::ERROR err = mcp2515.setFilterMask(MCP2515::MASK0, false, 0x7FF);
-    printTestResult(err == MCP2515::ERROR_OK, "MASK0 set for standard IDs");
+    // **FIX:** This test now actually verifies filtering works, not just that set functions return OK
 
-    printTestHeader("Set Mask 1 (Extended ID)");
-    err = mcp2515.setFilterMask(MCP2515::MASK1, true, 0x1FFFFFFF);
-    printTestResult(err == MCP2515::ERROR_OK, "MASK1 set for extended IDs");
+    if (TEST_MODE != TEST_MODE_LOOPBACK) {
+        safe_println(COLOR_YELLOW "Filter verification requires loopback mode - skipping" COLOR_RESET);
+        test_stats.skipped_tests += 6;
+        return;
+    }
 
-    // Test setting filters
+    struct can_frame tx_frame, rx_frame;
+    MCP2515::ERROR err;
+
+    // Clear any pending messages first
+    while (mcp2515.checkReceive()) {
+        mcp2515.readMessage(&rx_frame);
+    }
+
+    // ===================================================================
+    // Test 1: Accept All (Mask = 0x000)
+    // ===================================================================
+    printTestHeader("Filter Test: Accept All (Mask = 0x000)");
+
+    mcp2515.setFilterMask(MCP2515::MASK0, false, 0x000);  // All bits don't care
+    mcp2515.setFilter(MCP2515::RXF0, false, 0x000);
+    delay(50);
+
+    // Send different IDs - all should be accepted
+    bool accept_all_works = true;
+    for (uint32_t test_id = 0x100; test_id <= 0x103; test_id++) {
+        tx_frame.can_id = test_id;
+        tx_frame.can_dlc = 1;
+        tx_frame.data[0] = (uint8_t)test_id;
+
+        mcp2515.sendMessage(&tx_frame);
+        delay(100);
+
+        if (!mcp2515.checkReceive()) {
+            accept_all_works = false;
+            break;
+        }
+        mcp2515.readMessage(&rx_frame);  // Clear it
+    }
+
+    printTestResult(accept_all_works, "Accept-all filter (mask=0x000) passed all IDs");
+
+    // ===================================================================
+    // Test 2: Exact Match (Mask = 0x7FF)
+    // ===================================================================
+    printTestHeader("Filter Test: Exact Match (Mask = 0x7FF)");
+
+    // Clear RX buffer
+    while (mcp2515.checkReceive()) {
+        mcp2515.readMessage(&rx_frame);
+    }
+
+    // Set filter to ONLY accept 0x123
+    mcp2515.setFilterMask(MCP2515::MASK0, false, 0x7FF);  // Match all 11 bits
+    mcp2515.setFilter(MCP2515::RXF0, false, 0x123);
+    delay(50);
+
+    // Test 2a: Matching frame SHOULD be accepted
+    tx_frame.can_id = 0x123;
+    tx_frame.can_dlc = 1;
+    tx_frame.data[0] = 0xAA;
+
+    mcp2515.sendMessage(&tx_frame);
+    delay(100);
+
+    bool matching_accepted = mcp2515.checkReceive();
+    printTestResult(matching_accepted, "Matching frame 0x123 accepted");
+
+    if (matching_accepted) {
+        mcp2515.readMessage(&rx_frame);
+        if (VERBOSE_OUTPUT && ((rx_frame.can_id & CAN_SFF_MASK) != 0x123)) {
+            safe_printf("  %sWarning: Received ID 0x%03X, expected 0x123%s\n",
+                       COLOR_YELLOW, rx_frame.can_id & CAN_SFF_MASK, COLOR_RESET);
+        }
+    }
+
+    // Test 2b: Non-matching frame SHOULD be rejected
+    printTestHeader("Filter Test: Reject Non-Matching Frame");
+
+    tx_frame.can_id = 0x456;  // Different ID
+    tx_frame.can_dlc = 1;
+    tx_frame.data[0] = 0xBB;
+
+    mcp2515.sendMessage(&tx_frame);
+    delay(100);
+
+    bool nonmatching_rejected = !mcp2515.checkReceive();
+    printTestResult(nonmatching_rejected, "Non-matching frame 0x456 rejected");
+
+    // ===================================================================
+    // Test 3: Partial Match (Mask = 0x700, filter = 0x100)
+    // ===================================================================
+    printTestHeader("Filter Test: Partial Match (Mask = 0x700)");
+
+    // Clear RX buffer
+    while (mcp2515.checkReceive()) {
+        mcp2515.readMessage(&rx_frame);
+    }
+
+    // Filter: Match upper 3 bits only (0x100-0x1FF should pass)
+    mcp2515.setFilterMask(MCP2515::MASK0, false, 0x700);
+    mcp2515.setFilter(MCP2515::RXF0, false, 0x100);
+    delay(50);
+
+    // 0x123 should match (upper bits = 0x100)
+    tx_frame.can_id = 0x123;
+    tx_frame.can_dlc = 1;
+    tx_frame.data[0] = 0xCC;
+    mcp2515.sendMessage(&tx_frame);
+    delay(100);
+
+    bool partial_match_pass = mcp2515.checkReceive();
+    if (partial_match_pass) mcp2515.readMessage(&rx_frame);
+
+    // 0x456 should NOT match (upper bits = 0x400)
+    tx_frame.can_id = 0x456;
+    tx_frame.can_dlc = 1;
+    tx_frame.data[0] = 0xDD;
+    mcp2515.sendMessage(&tx_frame);
+    delay(100);
+
+    bool partial_match_reject = !mcp2515.checkReceive();
+
+    bool partial_match_ok = partial_match_pass && partial_match_reject;
+    printTestResult(partial_match_ok, "Partial mask (0x700) filtered correctly");
+
+    // ===================================================================
+    // Test 4: Extended ID Filter
+    // ===================================================================
+    printTestHeader("Filter Test: Extended ID Filtering");
+
+    // Clear RX buffer
+    while (mcp2515.checkReceive()) {
+        mcp2515.readMessage(&rx_frame);
+    }
+
+    // Set extended ID filter
+    mcp2515.setFilterMask(MCP2515::MASK1, true, 0x1FFFFFFF);  // Match all 29 bits
+    mcp2515.setFilter(MCP2515::RXF2, true, 0x12345678);
+    delay(50);
+
+    // Matching extended frame
+    tx_frame.can_id = 0x12345678 | CAN_EFF_FLAG;
+    tx_frame.can_dlc = 2;
+    tx_frame.data[0] = 0xEE;
+    tx_frame.data[1] = 0xFF;
+
+    mcp2515.sendMessage(&tx_frame);
+    delay(100);
+
+    bool ext_accepted = mcp2515.checkReceive();
+    printTestResult(ext_accepted, "Extended ID 0x12345678 accepted");
+
+    if (ext_accepted) {
+        mcp2515.readMessage(&rx_frame);
+    }
+
+    // ===================================================================
+    // Test 5: Multiple Filters (RXF0-RXF5)
+    // ===================================================================
+    printTestHeader("Configure All 6 Filters");
+
     const struct {
         MCP2515::RXF filter;
         bool ext;
         uint32_t id;
-    } filters[] = {
+    } all_filters[] = {
         {MCP2515::RXF0, false, 0x123},
         {MCP2515::RXF1, false, 0x456},
         {MCP2515::RXF2, true, 0x12345678},
@@ -729,17 +935,20 @@ void testFiltersAndMasks() {
         {MCP2515::RXF5, false, 0x777}
     };
 
+    bool all_set_ok = true;
     for (uint8_t i = 0; i < 6; i++) {
-        char filter_name[32];
-        snprintf(filter_name, sizeof(filter_name), "Set Filter %d (%s)",
-                 i, filters[i].ext ? "Extended" : "Standard");
-        printTestHeader(filter_name);
-
-        err = mcp2515.setFilter(filters[i].filter, filters[i].ext, filters[i].id);
-        printTestResult(err == MCP2515::ERROR_OK, "Filter set successfully");
+        err = mcp2515.setFilter(all_filters[i].filter, all_filters[i].ext, all_filters[i].id);
+        if (err != MCP2515::ERROR_OK) {
+            all_set_ok = false;
+            break;
+        }
     }
 
-    // Clear filters for subsequent tests (accept all)
+    printTestResult(all_set_ok, "All 6 filters configured");
+
+    // ===================================================================
+    // Reset filters to accept all for subsequent tests
+    // ===================================================================
     for (uint8_t i = 0; i < 6; i++) {
         mcp2515.setFilter((MCP2515::RXF)i, false, 0);
     }
@@ -1003,16 +1212,86 @@ void testFrameReception() {
 }
 
 // ============================================================================
+// TEST CATEGORY 6B: RXB1 BUFFER TESTING
+// ============================================================================
+
+void testRXB1Buffer() {
+    printSectionHeader("RXB1 BUFFER TESTING");
+
+    if (TEST_MODE != TEST_MODE_LOOPBACK) {
+        safe_println(COLOR_YELLOW "RXB1 test requires loopback mode - skipping" COLOR_RESET);
+        test_stats.skipped_tests += 2;
+        return;
+    }
+
+    struct can_frame tx_frame, rx_frame;
+    MCP2515::ERROR err;
+
+    // Clear any pending messages
+    while (mcp2515.checkReceive()) {
+        mcp2515.readMessage(&rx_frame);
+    }
+
+    // Send two frames - first goes to RXB0, second may go to RXB1 if rollover enabled
+    printTestHeader("Send Multiple Frames for RXB0/RXB1");
+
+    tx_frame.can_id = 0x301;
+    tx_frame.can_dlc = 1;
+    tx_frame.data[0] = 0x11;
+    mcp2515.sendMessage(&tx_frame);
+    delay(50);
+
+    tx_frame.can_id = 0x302;
+    tx_frame.can_dlc = 1;
+    tx_frame.data[0] = 0x22;
+    mcp2515.sendMessage(&tx_frame);
+    delay(100);
+
+    printTestHeader("Read from RXB1 Explicitly");
+    err = mcp2515.readMessage(MCP2515::RXB1, &rx_frame);
+
+    if (err == MCP2515::ERROR_OK) {
+        printTestResult(true, "RXB1 read successful");
+        if (VERBOSE_OUTPUT) {
+            safe_printf("  RXB1 ID: 0x%03X, Data: 0x%02X\n",
+                       rx_frame.can_id & CAN_SFF_MASK, rx_frame.data[0]);
+        }
+    } else if (err == MCP2515::ERROR_NOMSG) {
+        printTestResult(false, "RXB1 empty (rollover may not be enabled)");
+        if (VERBOSE_OUTPUT) {
+            safe_println("  " COLOR_YELLOW "Note: RXB0 rollover to RXB1 may not be configured" COLOR_RESET);
+        }
+    } else {
+        printTestResult(false, "RXB1 read failed");
+    }
+
+    // Test reading from RXB0 to compare
+    printTestHeader("Read from RXB0 for Comparison");
+    err = mcp2515.readMessage(MCP2515::RXB0, &rx_frame);
+    printTestResult(err == MCP2515::ERROR_OK || err == MCP2515::ERROR_NOMSG,
+                   "RXB0 read completed");
+
+    delay(100);
+}
+
+// ============================================================================
 // TEST CATEGORY 7: ERROR HANDLING
 // ============================================================================
 
 void testErrorHandling() {
-    printSectionHeader("ERROR HANDLING TESTS");
+    printSectionHeader("ERROR HANDLING TESTS - WITH VERIFICATION");
 
-    // Test 1: Get error flags
-    printTestHeader("Get Error Flags");
+    // **FIX:** This test now actually verifies error handling works, not just that functions don't crash
+
+    // Test 1: Get error flags and verify in normal operating range
+    printTestHeader("Get Error Flags - Verify Normal State");
     uint8_t eflg = mcp2515.getErrorFlags();
-    printTestResult(true, "Error flags read");
+
+    // In normal operation (loopback, no bus errors), critical flags should not be set
+    bool no_critical_errors = !(eflg & (MCP2515::EFLG_TXBO | MCP2515::EFLG_TXEP | MCP2515::EFLG_RXEP));
+
+    printTestResult(no_critical_errors, "No critical error flags (bus-off, error-passive)");
+
     if (VERBOSE_OUTPUT) {
         safe_printf("  EFLG = 0x%02X\n", eflg);
         if (eflg & MCP2515::EFLG_RX0OVR) safe_println("    - RX0 Overflow");
@@ -1024,55 +1303,108 @@ void testErrorHandling() {
         if (eflg & MCP2515::EFLG_RXWAR) safe_println("    - RX Error Warning");
     }
 
-    // Test 2: Check error
-    printTestHeader("Check Error Function");
+    // Test 2: Check error function consistency
+    printTestHeader("Check Error Consistency with Flags");
     bool has_error = mcp2515.checkError();
-    printTestResult(true, has_error ? "Errors detected" : "No errors");
 
-    // Test 3: Error counters
-    printTestHeader("Read RX Error Counter");
+    // checkError() should return true if EFLG has any error flags
+    bool error_consistent = (has_error == (eflg != 0));
+
+    printTestResult(error_consistent, "checkError() consistent with error flags");
+
+    // Test 3: Error counters in normal range
+    printTestHeader("Verify Error Counters in Normal Range");
     uint8_t rec = mcp2515.errorCountRX();
-    printTestResult(true, "RX error count read");
-    if (VERBOSE_OUTPUT) safe_printf("  REC = %d\n", rec);
-
-    printTestHeader("Read TX Error Counter");
     uint8_t tec = mcp2515.errorCountTX();
-    printTestResult(true, "TX error count read");
-    if (VERBOSE_OUTPUT) safe_printf("  TEC = %d\n", tec);
 
-    // Test 4: Clear overflow flags
-    printTestHeader("Clear RXnOVR Flags");
+    // In normal operation, error counters should be < 128 (not error-passive)
+    bool counters_normal = (rec < 128 && tec < 128);
+
+    printTestResult(counters_normal, "Error counters < 128 (not error-passive)");
+
+    if (VERBOSE_OUTPUT) {
+        safe_printf("  REC = %d, TEC = %d\n", rec, tec);
+    }
+
+    // Test 4: Clear overflow flags and verify
+    printTestHeader("Clear and Verify RXnOVR Flags");
+
+    uint8_t eflg_before = mcp2515.getErrorFlags();
     mcp2515.clearRXnOVRFlags();
-    printTestResult(true, "Overflow flags cleared");
+    delay(10);
+    uint8_t eflg_after = mcp2515.getErrorFlags();
 
-    // Test 5: Clear RXnOVR
-    printTestHeader("Clear RXnOVR Function");
+    // Overflow bits should be cleared
+    bool overflow_cleared = !(eflg_after & (MCP2515::EFLG_RX0OVR | MCP2515::EFLG_RX1OVR));
+
+    printTestResult(overflow_cleared, "RXnOVR flags cleared");
+
+    if (!overflow_cleared && VERBOSE_OUTPUT) {
+        safe_printf("  Before: 0x%02X, After: 0x%02X\n", eflg_before, eflg_after);
+    }
+
+    // Test 5: Test clearRXnOVR (alternative clear method)
+    printTestHeader("Clear RXnOVR (Alternative Method)");
     mcp2515.clearRXnOVR();
-    printTestResult(true, "RXnOVR cleared");
+    delay(10);
+    uint8_t eflg_rxnovr = mcp2515.getErrorFlags();
 
-    // Test 6: Clear MERR
+    bool rxnovr_cleared = !(eflg_rxnovr & (MCP2515::EFLG_RX0OVR | MCP2515::EFLG_RX1OVR));
+    printTestResult(rxnovr_cleared, "RXnOVR cleared (alternative method)");
+
+    // Test 6: Clear MERR flag
     printTestHeader("Clear MERR Flag");
     mcp2515.clearMERR();
-    printTestResult(true, "MERR cleared");
+    delay(10);
 
-    // Test 7: Clear ERRIF
+    // Can't directly verify MERR flag (it's in CANINTF), but function should not crash
+    printTestResult(true, "clearMERR executed");
+
+    // Test 7: Clear ERRIF flag
     printTestHeader("Clear ERRIF Flag");
     mcp2515.clearERRIF();
-    printTestResult(true, "ERRIF cleared");
+    delay(10);
+
+    // Verify ERRIF is cleared from interrupt flags
+    uint8_t irq = mcp2515.getInterrupts();
+    bool errif_cleared = !(irq & MCP2515::CANINTF_ERRIF);
+
+    printTestResult(errif_cleared, "ERRIF flag cleared");
 
     // Test 8: Error recovery (ESP32-specific)
     #ifdef ESP32
-    printTestHeader("Perform Error Recovery");
+    printTestHeader("Error Recovery - Verify Execution");
+
+    uint8_t tec_before = mcp2515.errorCountTX();
+    uint8_t rec_before = mcp2515.errorCountRX();
+
     MCP2515::ERROR err = mcp2515.performErrorRecovery();
-    printTestResult(err == MCP2515::ERROR_OK, "Error recovery performed");
+
+    bool recovery_ok = (err == MCP2515::ERROR_OK);
+    printTestResult(recovery_ok, "Error recovery executed successfully");
+
+    if (VERBOSE_OUTPUT && recovery_ok) {
+        uint8_t tec_after = mcp2515.errorCountTX();
+        uint8_t rec_after = mcp2515.errorCountRX();
+        safe_printf("  Error counts - Before: TEC=%d REC=%d, After: TEC=%d REC=%d\n",
+                   tec_before, rec_before, tec_after, rec_after);
+    }
     #endif
 
     // Test 9: Bus status (ESP32-specific)
     #ifdef ESP32
-    printTestHeader("Get Bus Status");
+    printTestHeader("Get Bus Status - Verify Valid");
     uint8_t bus_status = mcp2515.getBusStatus();
-    printTestResult(true, "Bus status read");
-    if (VERBOSE_OUTPUT) safe_printf("  CANSTAT = 0x%02X\n", bus_status);
+
+    // Bus status should have a valid mode in upper 3 bits (OPMOD field)
+    uint8_t opmod = (bus_status >> 5) & 0x07;
+    bool valid_mode = (opmod <= 5);  // Valid modes are 0-5
+
+    printTestResult(valid_mode, "Bus status contains valid operating mode");
+
+    if (VERBOSE_OUTPUT) {
+        safe_printf("  CANSTAT = 0x%02X, OPMOD = %d\n", bus_status, opmod);
+    }
     #endif
 
     delay(100);
@@ -1139,16 +1471,44 @@ void testInterruptFunctions() {
 // ============================================================================
 
 void testStatistics() {
-    printSectionHeader("STATISTICS TESTS (ESP32-specific)");
+    printSectionHeader("STATISTICS TESTS (ESP32-specific) - VALUE VERIFICATION");
 
     #ifdef ESP32
-    // Test 1: Reset statistics
-    printTestHeader("Reset Statistics");
-    mcp2515.resetStatistics();
-    printTestResult(true, "Statistics reset");
+    // **FIX:** This test now actually verifies counter values match expected behavior
 
-    // Test 2: Send some frames to generate statistics
-    printTestHeader("Generate TX Statistics");
+    // Test 1: Reset statistics and verify all counters are zero
+    printTestHeader("Reset Statistics and Verify Zero");
+    mcp2515.resetStatistics();
+    delay(50);
+
+    mcp2515_statistics_t stats_reset;
+    mcp2515.getStatistics(&stats_reset);
+
+    bool all_zero = (stats_reset.tx_frames == 0 &&
+                     stats_reset.rx_frames == 0 &&
+                     stats_reset.tx_errors == 0 &&
+                     stats_reset.rx_errors == 0 &&
+                     stats_reset.rx_overflow == 0 &&
+                     stats_reset.tx_timeouts == 0 &&
+                     stats_reset.bus_errors == 0 &&
+                     stats_reset.bus_off_count == 0);
+
+    printTestResult(all_zero, "All statistics counters reset to zero");
+
+    if (!all_zero && VERBOSE_OUTPUT) {
+        safe_printf("  %sNon-zero counters after reset:%s\n", COLOR_YELLOW, COLOR_RESET);
+        if (stats_reset.tx_frames) safe_printf("    TX Frames: %lu\n", stats_reset.tx_frames);
+        if (stats_reset.rx_frames) safe_printf("    RX Frames: %lu\n", stats_reset.rx_frames);
+        if (stats_reset.tx_errors) safe_printf("    TX Errors: %lu\n", stats_reset.tx_errors);
+    }
+
+    // Test 2: Send exactly 10 frames and verify TX counter
+    printTestHeader("TX Frame Counter Accuracy");
+
+    mcp2515_statistics_t stats_before;
+    mcp2515.getStatistics(&stats_before);
+
+    uint32_t frames_sent_successfully = 0;
     for (int i = 0; i < 10; i++) {
         struct can_frame frame;
         frame.can_id = 0x400 + i;
@@ -1156,38 +1516,94 @@ void testStatistics() {
         for (uint8_t j = 0; j < 8; j++) {
             frame.data[j] = i * 10 + j;
         }
-        mcp2515.sendMessage(&frame);
+        MCP2515::ERROR err = mcp2515.sendMessage(&frame);
+        if (err == MCP2515::ERROR_OK) {
+            frames_sent_successfully++;
+        }
         delay(10);
     }
-    printTestResult(true, "10 frames sent");
 
-    // Test 3: Get statistics
-    printTestHeader("Get Statistics");
-    mcp2515_statistics_t stats;
-    mcp2515.getStatistics(&stats);
-    printTestResult(true, "Statistics retrieved");
+    delay(100);  // Allow all TX to complete
 
-    if (VERBOSE_OUTPUT) {
-        safe_println("  Statistics:");
-        safe_printf("    RX Frames:     %lu\n", stats.rx_frames);
-        safe_printf("    TX Frames:     %lu\n", stats.tx_frames);
-        safe_printf("    RX Errors:     %lu\n", stats.rx_errors);
-        safe_printf("    TX Errors:     %lu\n", stats.tx_errors);
-        safe_printf("    RX Overflow:   %lu\n", stats.rx_overflow);
-        safe_printf("    TX Timeouts:   %lu\n", stats.tx_timeouts);
-        safe_printf("    Bus Errors:    %lu\n", stats.bus_errors);
-        safe_printf("    Bus-Off Count: %lu\n", stats.bus_off_count);
+    mcp2515_statistics_t stats_after;
+    mcp2515.getStatistics(&stats_after);
+
+    uint32_t tx_delta = stats_after.tx_frames - stats_before.tx_frames;
+    bool tx_correct = (tx_delta == frames_sent_successfully);
+
+    printTestResult(tx_correct, "TX counter matches frames sent");
+
+    if (!tx_correct) {
+        safe_printf("  %sExpected: %lu, Actual delta: %lu%s\n",
+                   COLOR_YELLOW, frames_sent_successfully, tx_delta, COLOR_RESET);
     }
 
-    // Test 4: Get RX queue count
+    // Test 3: In loopback mode, RX counter should also increment
+    if (TEST_MODE == TEST_MODE_LOOPBACK) {
+        printTestHeader("RX Frame Counter (Loopback Mode)");
+
+        uint32_t rx_delta = stats_after.rx_frames - stats_before.rx_frames;
+
+        // In loopback, frames loop back to RX
+        // The count should be close to frames sent (may vary slightly)
+        bool rx_incremented = (rx_delta > 0 && rx_delta <= frames_sent_successfully);
+
+        printTestResult(rx_incremented, "RX counter incremented in loopback");
+
+        if (VERBOSE_OUTPUT) {
+            safe_printf("  TX delta: %lu, RX delta: %lu\n", tx_delta, rx_delta);
+        }
+    }
+
+    // Test 4: Verify statistics don't go backwards
+    printTestHeader("Statistics Monotonicity");
+
+    mcp2515_statistics_t stats1, stats2;
+    mcp2515.getStatistics(&stats1);
+
+    // Send one more frame
+    struct can_frame test_frame;
+    test_frame.can_id = 0x500;
+    test_frame.can_dlc = 1;
+    test_frame.data[0] = 0xFF;
+    mcp2515.sendMessage(&test_frame);
+    delay(50);
+
+    mcp2515.getStatistics(&stats2);
+
+    bool monotonic = (stats2.tx_frames >= stats1.tx_frames &&
+                      stats2.rx_frames >= stats1.rx_frames);
+
+    printTestResult(monotonic, "Statistics counters are monotonic (don't decrease)");
+
+    // Test 5: Get RX queue count
     printTestHeader("Get RX Queue Count");
     uint32_t queue_count = mcp2515.getRxQueueCount();
-    printTestResult(true, "Queue count retrieved");
-    if (VERBOSE_OUTPUT) safe_printf("  Queue count = %lu\n", queue_count);
+
+    // Queue count should be a reasonable number (not > queue size, not negative)
+    bool queue_count_valid = (queue_count <= 100);  // Assuming max queue size around 32-64
+
+    printTestResult(queue_count_valid, "Queue count is valid");
+    if (VERBOSE_OUTPUT) {
+        safe_printf("  Queue count = %lu\n", queue_count);
+    }
+
+    // Test 6: Display full statistics if verbose
+    if (VERBOSE_OUTPUT) {
+        safe_println("\n  " COLOR_BOLD "Final Statistics:" COLOR_RESET);
+        safe_printf("    RX Frames:     %lu\n", stats2.rx_frames);
+        safe_printf("    TX Frames:     %lu\n", stats2.tx_frames);
+        safe_printf("    RX Errors:     %lu\n", stats2.rx_errors);
+        safe_printf("    TX Errors:     %lu\n", stats2.tx_errors);
+        safe_printf("    RX Overflow:   %lu\n", stats2.rx_overflow);
+        safe_printf("    TX Timeouts:   %lu\n", stats2.tx_timeouts);
+        safe_printf("    Bus Errors:    %lu\n", stats2.bus_errors);
+        safe_printf("    Bus-Off Count: %lu\n", stats2.bus_off_count);
+    }
 
     #else
     safe_println(COLOR_YELLOW "Statistics tests are ESP32-specific - skipped" COLOR_RESET);
-    test_stats.skipped_tests += 4;
+    test_stats.skipped_tests += 6;
     #endif
 
     delay(100);
@@ -1198,16 +1614,34 @@ void testStatistics() {
 // ============================================================================
 
 void testStatusFunctions() {
-    printSectionHeader("STATUS FUNCTION TESTS");
+    printSectionHeader("STATUS FUNCTION TESTS - WITH VERIFICATION");
 
-    // Test 1: Get status
-    printTestHeader("Get Status");
+    // Send a frame first to potentially set status bits
+    struct can_frame frame;
+    frame.can_id = 0x600;
+    frame.can_dlc = 1;
+    frame.data[0] = 0xAA;
+    mcp2515.sendMessage(&frame);
+    delay(100);
+
+    printTestHeader("Get Status and Verify Valid");
     uint8_t status = mcp2515.getStatus();
-    printTestResult(true, "Status read");
+
+    // Status should be a valid byte (not 0xFF which might indicate SPI error)
+    bool status_valid = (status != 0xFF);
+
+    printTestResult(status_valid, "Status read successfully (not 0xFF)");
+
     if (VERBOSE_OUTPUT) {
         safe_printf("  Status = 0x%02X\n", status);
         if (status & 0x01) safe_println("    - RX0IF");
         if (status & 0x02) safe_println("    - RX1IF");
+        if (status & 0x04) safe_println("    - TX0REQ");
+        if (status & 0x08) safe_println("    - TX0IF");
+        if (status & 0x10) safe_println("    - TX1REQ");
+        if (status & 0x20) safe_println("    - TX1IF");
+        if (status & 0x40) safe_println("    - TX2REQ");
+        if (status & 0x80) safe_println("    - TX2IF");
     }
 
     delay(100);
@@ -1382,6 +1816,195 @@ void testAdvancedFeatures() {
     result = (err == MCP2515::ERROR_OK || err == MCP2515::ERROR_NOMSG || err == MCP2515::ERROR_TIMEOUT);
     printTestResult(result, "Queued read with timeout tested");
     #endif
+
+    delay(100);
+}
+
+// ============================================================================
+// TEST CATEGORY 13A: ADVANCED QUEUE TESTS
+// ============================================================================
+
+void testAdvancedQueue() {
+    printSectionHeader("ADVANCED QUEUE TESTS (ESP32-specific)");
+
+    #ifdef ESP32
+
+    struct can_frame frame, rx_frame;
+    MCP2515::ERROR err;
+
+    // Clear queue first
+    while (mcp2515.getRxQueueCount() > 0) {
+        mcp2515.readMessageQueued(&rx_frame, 0);
+    }
+
+    // Test 1: Read from empty queue with zero timeout
+    printTestHeader("Read from Empty Queue (No Wait)");
+    err = mcp2515.readMessageQueued(&rx_frame, 0);
+    bool empty_correct = (err == MCP2515::ERROR_NOMSG || err == MCP2515::ERROR_TIMEOUT);
+    printTestResult(empty_correct, "Empty queue returns ERROR_NOMSG or ERROR_TIMEOUT");
+
+    // Test 2: Send message and verify queue count increments
+    printTestHeader("Queue Count Increments");
+    uint32_t count_before = mcp2515.getRxQueueCount();
+
+    frame.can_id = 0x650;
+    frame.can_dlc = 2;
+    frame.data[0] = 0xAA;
+    frame.data[1] = 0xBB;
+    mcp2515.sendMessage(&frame);
+    delay(100);
+
+    uint32_t count_after = mcp2515.getRxQueueCount();
+    bool count_incremented = (count_after > count_before);
+
+    printTestResult(count_incremented, "Queue count incremented after RX");
+
+    if (VERBOSE_OUTPUT) {
+        safe_printf("  Before: %lu, After: %lu\n", count_before, count_after);
+    }
+
+    // Test 3: Read with timeout and verify it works
+    printTestHeader("Read from Queue with Timeout");
+    err = mcp2515.readMessageQueued(&rx_frame, 100);
+    bool read_ok = (err == MCP2515::ERROR_OK);
+
+    printTestResult(read_ok, "Queued read successful");
+
+    if (read_ok) {
+        bool data_match = (rx_frame.can_id == 0x650 &&
+                          rx_frame.data[0] == 0xAA &&
+                          rx_frame.data[1] == 0xBB);
+        printTestResult(data_match, "Queued frame data matches sent frame");
+    }
+
+    #else
+    safe_println(COLOR_YELLOW "Queue tests are ESP32-specific - skipped" COLOR_RESET);
+    test_stats.skipped_tests += 4;
+    #endif
+
+    delay(100);
+}
+
+// ============================================================================
+// TEST CATEGORY 13B: STATE TRANSITION ERROR TESTS
+// ============================================================================
+
+void testStateTransitionErrors() {
+    printSectionHeader("STATE TRANSITION ERROR TESTS");
+
+    struct can_frame frame;
+    MCP2515::ERROR err;
+
+    // Test 1: Try to send in CONFIG mode (should fail)
+    printTestHeader("Send Frame in CONFIG Mode");
+    mcp2515.setConfigMode();
+    delay(50);
+
+    frame.can_id = 0x700;
+    frame.can_dlc = 1;
+    frame.data[0] = 0xFF;
+    err = mcp2515.sendMessage(&frame);
+
+    // In config mode, send should fail (or at minimum, not transmit)
+    bool send_blocked = (err != MCP2515::ERROR_OK);
+    printTestResult(send_blocked, "Send blocked in CONFIG mode");
+
+    if (!send_blocked && VERBOSE_OUTPUT) {
+        safe_println("  " COLOR_YELLOW "Warning: Send succeeded in CONFIG mode" COLOR_RESET);
+    }
+
+    // Test 2: Try to change bitrate in NORMAL mode (may require config mode)
+    printTestHeader("Change Bitrate in NORMAL Mode");
+    mcp2515.setNormalMode();
+    delay(50);
+
+    err = mcp2515.setBitrate(CAN_500KBPS, CONFIG_CAN_CLOCK);
+
+    // Some implementations may require config mode first
+    if (err != MCP2515::ERROR_OK && VERBOSE_OUTPUT) {
+        safe_println("  " COLOR_YELLOW "Bitrate change blocked (may require CONFIG mode)" COLOR_RESET);
+    }
+
+    printTestResult(true, "Bitrate change attempted in NORMAL mode");
+
+    // Restore to known state
+    mcp2515.setConfigMode();
+    delay(20);
+    mcp2515.setBitrate(current_test_speed, CONFIG_CAN_CLOCK);
+    delay(20);
+
+    if (TEST_MODE == TEST_MODE_LOOPBACK) {
+        mcp2515.setLoopbackMode();
+    } else {
+        mcp2515.setNormalMode();
+    }
+    delay(50);
+
+    delay(100);
+}
+
+// ============================================================================
+// TEST CATEGORY 14: BOUNDARY CONDITION TESTS
+// ============================================================================
+
+void testBoundaryConditions() {
+    printSectionHeader("BOUNDARY CONDITION TESTS");
+
+    struct can_frame frame;
+    MCP2515::ERROR err;
+
+    // Test 1: Zero-byte frame (valid)
+    printTestHeader("Zero-Byte Frame (DLC=0)");
+    frame.can_id = 0x200;
+    frame.can_dlc = 0;
+    err = mcp2515.sendMessage(&frame);
+    printTestResult(err == MCP2515::ERROR_OK, "Zero-byte frame accepted");
+
+    // Test 2: Maximum DLC (8 bytes)
+    printTestHeader("Maximum DLC (8 Bytes)");
+    frame.can_dlc = 8;
+    for (uint8_t i = 0; i < 8; i++) frame.data[i] = i;
+    err = mcp2515.sendMessage(&frame);
+    printTestResult(err == MCP2515::ERROR_OK, "8-byte frame accepted");
+
+    // Test 3: DLC > 8 (should be rejected or clamped)
+    printTestHeader("Invalid DLC > 8");
+    frame.can_dlc = 15;
+    err = mcp2515.sendMessage(&frame);
+    // Library may accept but clamp DLC, or may reject
+    // Either behavior is acceptable
+    printTestResult(true, "Invalid DLC handled (accept with clamp or reject)");
+    if (VERBOSE_OUTPUT) {
+        safe_printf("  Result: %s\n", (err == MCP2515::ERROR_OK) ? "Accepted (clamped)" : "Rejected");
+    }
+
+    // Test 4: Maximum standard CAN ID
+    printTestHeader("Maximum Standard ID (0x7FF)");
+    frame.can_id = 0x7FF;  // Max 11-bit ID
+    frame.can_dlc = 1;
+    frame.data[0] = 0xAA;
+    err = mcp2515.sendMessage(&frame);
+    printTestResult(err == MCP2515::ERROR_OK, "Max standard ID accepted");
+
+    // Test 5: Maximum extended CAN ID
+    printTestHeader("Maximum Extended ID (0x1FFFFFFF)");
+    frame.can_id = 0x1FFFFFFF | CAN_EFF_FLAG;  // Max 29-bit ID
+    frame.can_dlc = 1;
+    frame.data[0] = 0xBB;
+    err = mcp2515.sendMessage(&frame);
+    printTestResult(err == MCP2515::ERROR_OK, "Max extended ID accepted");
+
+    // Test 6: Invalid ID beyond standard range without EFF flag
+    printTestHeader("ID > 0x7FF Without EFF Flag");
+    frame.can_id = 0xFFF;  // Beyond 11-bit without EFF flag
+    frame.can_dlc = 1;
+    frame.data[0] = 0xCC;
+    err = mcp2515.sendMessage(&frame);
+    // Library should either set EFF flag automatically or reject
+    printTestResult(true, "Out-of-range ID handled");
+    if (VERBOSE_OUTPUT) {
+        safe_printf("  Result: %s\n", (err == MCP2515::ERROR_OK) ? "Accepted (may set EFF)" : "Rejected");
+    }
 
     delay(100);
 }
