@@ -176,15 +176,13 @@ public:
         }
     }
 
-    // Direct access to Serial for the block
-    HardwareSerial& get() { return Serial; }
-
 private:
     bool locked;
 };
 
 // Macro for atomic multi-line prints
-#define SAFE_SERIAL_BLOCK() SafeSerialBlock _safe_serial_block; HardwareSerial& Serial = _safe_serial_block.get()
+// Creates a scoped lock - all Serial calls within the scope are protected
+#define SAFE_SERIAL_BLOCK() SafeSerialBlock _safe_serial_block
 
 // ============================================================================
 // TEST INFRASTRUCTURE
