@@ -42,7 +42,7 @@
 #define SPI_INT_PIN     36     // Interrupt pin (set to -1 to disable interrupts)
 
 // CAN Bus Configuration
-#define CONFIG_CAN_SPEED       CAN_125KBPS   // CAN bus speed (single-speed mode)
+#define CONFIG_CAN_SPEED       CAN_250KBPS   // CAN bus speed (single-speed mode)
 #define CONFIG_CAN_CLOCK       MCP_16MHZ     // MCP2515 crystal frequency (8MHz, 16MHz, or 20MHz)
 
 // ============================================================================
@@ -69,7 +69,7 @@ typedef enum {
     TEST_MODE_TWO_DEVICE    // Mode 2: Real CAN bus test (2 ESP32s required)
 } test_mode_t;
 
-#define TEST_MODE       TEST_MODE_LOOPBACK    // Change this to TEST_MODE_TWO_DEVICE for dual-device testing
+#define TEST_MODE       TEST_MODE_TWO_DEVICE    // Change this to TEST_MODE_TWO_DEVICE for dual-device testing
 
 // Device Role (only used in TWO_DEVICE mode)
 typedef enum {
@@ -77,7 +77,7 @@ typedef enum {
     ROLE_SLAVE              // Slave device (responds to master)
 } device_role_t;
 
-#define DEVICE_ROLE     ROLE_MASTER           // Set to ROLE_SLAVE on second device
+#define DEVICE_ROLE     ROLE_SLAVE           // Set to ROLE_SLAVE on second device
 
 // Test Configuration Options
 #define ENABLE_INTERRUPT_TESTS    (SPI_INT_PIN >= 0)  // Automatically disable if no INT pin
@@ -251,6 +251,7 @@ bool checkTXBufferAvailable();
 void runComprehensiveTests();
 void runComprehensiveTestsAtSpeed(CAN_SPEED speed);
 void printMultiSpeedComparison();
+void runSlaveMode();  // **NEW:** Slave mode handler
 
 // **NEW:** Optimized timing and two-device coordination helpers
 bool waitForMessage(uint32_t timeout_ms);
@@ -342,12 +343,17 @@ void setup() {
     // Initialize SPI
     SPI.begin(SPI_SCK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, SPI_CS_PIN);
 
-    // Run tests
-    if (ENABLE_MULTI_SPEED_TEST) {
-        runMultiSpeedTests();
+    // **NEW:** Check if we're in slave mode
+    if (TEST_MODE == TEST_MODE_TWO_DEVICE && DEVICE_ROLE == ROLE_SLAVE) {
+        runSlaveMode();  // Enter slave mode handler (never returns)
     } else {
-        runComprehensiveTests();
-        printFinalStatistics();
+        // Master or loopback mode: run normal tests
+        if (ENABLE_MULTI_SPEED_TEST) {
+            runMultiSpeedTests();
+        } else {
+            runComprehensiveTests();
+            printFinalStatistics();
+        }
     }
 }
 
@@ -2384,6 +2390,111 @@ void sendCompleteSignal() {
     frame.can_dlc = 1;
     frame.data[0] = (DEVICE_ROLE == ROLE_MASTER) ? 0xAA : 0xBB;
     mcp2515.sendMessage(&frame);
+}
+
+// ============================================================================
+// SLAVE MODE HANDLER
+// ============================================================================
+
+/**
+ * Slave mode handler - waits for commands from master and executes tests
+ * This function never returns - it loops indefinitely waiting for commands
+ */
+void runSlaveMode() {
+    SAFE_SERIAL_BLOCK();
+    Serial.println(COLOR_BOLD COLOR_CYAN "╔════════════════════════════════════════════════════════════════╗" COLOR_RESET);
+    Serial.println(COLOR_BOLD COLOR_CYAN "║              SLAVE MODE - AWAITING MASTER COMMANDS             ║" COLOR_RESET);
+    Serial.println(COLOR_BOLD COLOR_CYAN "╚════════════════════════════════════════════════════════════════╝" COLOR_RESET);
+    Serial.println();
+
+    // Initialize MCP2515
+    Serial.print("Initializing MCP2515... ");
+    MCP2515::ERROR err = mcp2515.reset();
+    if (err != MCP2515::ERROR_OK) {
+        Serial.println(COLOR_RED "FAILED" COLOR_RESET);
+        Serial.println(COLOR_RED "Cannot continue in slave mode!" COLOR_RESET);
+        while(1) delay(1000);  // Halt
+    }
+    Serial.println(COLOR_GREEN "OK" COLOR_RESET);
+
+    Serial.print("Setting bitrate... ");
+    err = mcp2515.setBitrate(CONFIG_CAN_SPEED, CONFIG_CAN_CLOCK);
+    if (err != MCP2515::ERROR_OK) {
+        Serial.println(COLOR_RED "FAILED" COLOR_RESET);
+        while(1) delay(1000);  // Halt
+    }
+    Serial.println(COLOR_GREEN "OK" COLOR_RESET);
+
+    Serial.print("Setting normal mode... ");
+    err = mcp2515.setNormalMode();
+    if (err != MCP2515::ERROR_OK) {
+        Serial.println(COLOR_RED "FAILED" COLOR_RESET);
+        while(1) delay(1000);  // Halt
+    }
+    Serial.println(COLOR_GREEN "OK" COLOR_RESET);
+    Serial.println();
+
+    // Signal ready to master
+    Serial.println(COLOR_YELLOW "Signaling READY to master..." COLOR_RESET);
+    signalSlaveReady();
+    delay(500);
+
+    Serial.println(COLOR_GREEN "Slave initialized and ready!" COLOR_RESET);
+    Serial.println(COLOR_YELLOW "Waiting for commands from master..." COLOR_RESET);
+    Serial.println();
+
+    // Main loop - wait for commands from master
+    uint32_t commands_received = 0;
+    while (true) {
+        // Check for incoming command from master
+        if (mcp2515.checkReceive()) {
+            struct can_frame frame;
+            if (mcp2515.readMessage(&frame) == MCP2515::ERROR_OK) {
+                uint32_t can_id = frame.can_id & CAN_SFF_MASK;
+
+                // Check if it's a start test command
+                if (can_id == SYNC_ID_START_TEST) {
+                    uint8_t test_id = frame.data[0];
+                    commands_received++;
+
+                    {
+                        SAFE_SERIAL_BLOCK();
+                        Serial.println();
+                        Serial.printf(COLOR_CYAN "Command #%lu received: Test ID 0x%02X\n" COLOR_RESET,
+                                     commands_received, test_id);
+                    }
+
+                    // Execute test based on test_id
+                    // Note: Individual test functions check for slave mode and behave accordingly
+                    switch(test_id) {
+                        case 0x04:  // Filter tests
+                            safe_println(COLOR_YELLOW "  → Executing: Filter test frames" COLOR_RESET);
+                            testFiltersAndMasks();
+                            break;
+
+                        case 0x05:  // RXB1 buffer tests
+                            safe_println(COLOR_YELLOW "  → Executing: RXB1 buffer test frames" COLOR_RESET);
+                            testRXB1Buffer();
+                            break;
+
+                        case 0x06:  // Statistics RX counter test
+                            safe_println(COLOR_YELLOW "  → Executing: Statistics RX counter test" COLOR_RESET);
+                            testStatistics();
+                            break;
+
+                        default:
+                            safe_printf(COLOR_YELLOW "  → Unknown test ID 0x%02X - no action\n" COLOR_RESET, test_id);
+                            break;
+                    }
+
+                    safe_println(COLOR_GREEN "  ✓ Command completed\n" COLOR_RESET);
+                }
+            }
+        }
+
+        // Small delay to prevent tight polling
+        delay(10);
+    }
 }
 
 // **NEW:** Calculate theoretical max frames per second for a given CAN speed
