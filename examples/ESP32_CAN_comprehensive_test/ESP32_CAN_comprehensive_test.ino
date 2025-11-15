@@ -258,11 +258,17 @@ bool waitForMessage(uint32_t timeout_ms);
 bool waitForMessageAndRead(struct can_frame* frame, uint32_t timeout_ms);
 bool waitForTXBuffer(uint32_t timeout_ms);
 bool waitForModeChange(uint8_t target_mode, uint32_t timeout_ms);
-bool waitForSlaveReady(uint32_t timeout_ms = 5000);
-void signalSlaveReady();
-void sendStartSignal(uint8_t test_id);
-bool waitForStartSignal(uint8_t* test_id, uint32_t timeout_ms = 10000);
+void clearRXBuffer();
+
+// **ENHANCED:** Robust bidirectional handshake protocol for two-device mode
+bool waitForSlaveReadyAtStartup(uint32_t timeout_ms = 30000);
+void signalSlaveReadyContinuously();
+bool sendStartSignalWithRetry(uint8_t test_id, uint32_t max_retries = 5);
+bool waitForStartSignalAndAck(uint8_t* test_id, uint32_t timeout_ms = 60000);
+void sendAck();
+bool waitForAck(uint32_t timeout_ms = 3000);
 void sendCompleteSignal();
+bool waitForComplete(uint32_t timeout_ms = 5000);
 
 // Forward declarations for test functions
 void testInitialization();
@@ -575,32 +581,80 @@ void runComprehensiveTests() {
 
     current_test_speed = CONFIG_CAN_SPEED;
 
+    // **ENHANCED:** Wait for slave to be ready before starting tests
+    if (TEST_MODE == TEST_MODE_TWO_DEVICE && DEVICE_ROLE == ROLE_MASTER) {
+        Serial.println(COLOR_BOLD "Synchronizing with slave device..." COLOR_RESET);
+        Serial.println();
+
+        if (!waitForSlaveReadyAtStartup(30000)) {  // 30 second timeout
+            Serial.println(COLOR_RED "ERROR: Failed to synchronize with slave!" COLOR_RESET);
+            Serial.println(COLOR_RED "Please ensure slave device is powered on and connected." COLOR_RESET);
+            Serial.println();
+            while(1) delay(1000);  // Halt - cannot proceed without slave
+        }
+
+        Serial.println();
+        Serial.println(COLOR_GREEN "✓ Slave device synchronized!" COLOR_RESET);
+        Serial.println(COLOR_GREEN "  Both devices ready to begin testing" COLOR_RESET);
+        Serial.println();
+        delay(1000);
+    }
+
     // Test categories
     testInitialization();
+    clearRXBuffer();  // Clear between tests
+
     testOperatingModes();
+    clearRXBuffer();
+
     testBitrateConfiguration();
+    clearRXBuffer();
+
     testFiltersAndMasks();
+    clearRXBuffer();
+
     testFrameTransmission();
+    clearRXBuffer();
+
     testFrameReception();
+    clearRXBuffer();
+
     testRXB1Buffer();           // **NEW**: RXB1 buffer testing
+    clearRXBuffer();
+
     testErrorHandling();
+    clearRXBuffer();
 
     #if ENABLE_INTERRUPT_TESTS
     testInterruptFunctions();
+    clearRXBuffer();
     #endif
 
     testStatistics();
+    clearRXBuffer();
+
     testStatusFunctions();
+    clearRXBuffer();
 
     #if ENABLE_STRESS_TESTS
     testStressScenarios();
+    clearRXBuffer();
     #endif
 
     testClockOutput();
+    clearRXBuffer();
+
     testAdvancedFeatures();
+    clearRXBuffer();
+
     testAdvancedQueue();        // **NEW**: Advanced queue testing
+    clearRXBuffer();
+
     testStateTransitionErrors(); // **NEW**: State transition error tests
+    clearRXBuffer();
+
     testBoundaryConditions();   // **NEW**: Boundary condition tests
+    clearRXBuffer();
 }
 
 // ============================================================================
@@ -679,7 +733,7 @@ void testOperatingModes() {
         if (modes[i].requires_config_first) {
             // First go to config mode, then to target mode
             mcp2515.setConfigMode();
-            delay(50);
+            waitForModeChange(CANSTAT_OPMOD_CONFIG, 100);  // **OPTIMIZED:** Poll instead of delay
         }
 
         // Clear any pending interrupts
@@ -690,8 +744,11 @@ void testOperatingModes() {
         MCP2515::ERROR err = (mcp2515.*(modes[i].setter))();
 
         #if ENABLE_MODE_TRANSITION_FIX
-        // **FIX:** Allow mode transition to complete
-        delay(100);
+        // **OPTIMIZED:** Poll for mode change instead of fixed delay
+        bool mode_changed = waitForModeChange(modes[i].expected_opmod, 150);
+        if (!mode_changed && VERBOSE_OUTPUT) {
+            safe_println(COLOR_YELLOW "    Mode transition taking longer than expected" COLOR_RESET);
+        }
         #else
         delay(50);
         #endif
@@ -725,12 +782,13 @@ void testOperatingModes() {
     // Restore operating mode for subsequent tests
     if (TEST_MODE == TEST_MODE_LOOPBACK) {
         mcp2515.setLoopbackMode();
+        waitForModeChange(CANSTAT_OPMOD_LOOPBACK, 150);  // **OPTIMIZED:** Poll instead of delay
     } else {
         mcp2515.setNormalMode();
+        waitForModeChange(CANSTAT_OPMOD_NORMAL, 150);  // **OPTIMIZED:** Poll instead of delay
     }
-    delay(100); // **FIX:** Allow mode to stabilize
 
-    delay(100);
+    delay(50);  // **OPTIMIZED:** Reduced from 100ms
 }
 
 // ============================================================================
@@ -807,14 +865,8 @@ void testFiltersAndMasks() {
 
     // TWO_DEVICE MODE: Slave sends test frames, Master receives and verifies filtering
     if (TEST_MODE == TEST_MODE_TWO_DEVICE && DEVICE_ROLE == ROLE_SLAVE) {
+        // Slave is called from runSlaveMode() which already handled waitForStartSignalAndAck()
         safe_println(COLOR_YELLOW "Slave: Sending filter test frames for master..." COLOR_RESET);
-
-        // Wait for master's start signal
-        uint8_t test_id = 0;
-        if (!waitForStartSignal(&test_id, 10000)) {
-            safe_println(COLOR_RED "Slave: Timeout waiting for master start signal" COLOR_RESET);
-            return;
-        }
 
         // Send test frames for each filter test
         const uint32_t test_ids[] = {0x100, 0x101, 0x102, 0x103, 0x123, 0x456, 0x123, 0x456, 0x12345678 | CAN_EFF_FLAG};
@@ -826,15 +878,21 @@ void testFiltersAndMasks() {
             delay(100);  // Give master time to process
         }
 
+        // Signal completion and wait for master to finish
         sendCompleteSignal();
+        if (waitForComplete(5000)) {
+            safe_println(COLOR_GREEN "  ✓ Master completed filter tests" COLOR_RESET);
+        }
         return;
     }
 
-    // MASTER or LOOPBACK MODE: Run filter verification tests
-    if (TEST_MODE == TEST_MODE_TWO_DEVICE) {
-        // Signal slave to start sending
-        sendStartSignal(0x04);  // Test ID for filter test
-        delay(100);
+    // MASTER MODE: Signal slave to start sending
+    if (TEST_MODE == TEST_MODE_TWO_DEVICE && DEVICE_ROLE == ROLE_MASTER) {
+        if (!sendStartSignalWithRetry(0x04, 5)) {  // Test ID 0x04, 5 retries
+            safe_println(COLOR_RED "ERROR: Failed to start slave for filter test!" COLOR_RESET);
+            return;
+        }
+        delay(200);  // Give slave time to start sending
     }
 
     // ===================================================================
@@ -1023,6 +1081,16 @@ void testFiltersAndMasks() {
     mcp2515.setFilterMask(MCP2515::MASK1, false, 0);
 
     delay(20);  // **OPTIMIZED:** Reduced from 100ms to 20ms
+
+    // **ENHANCED:** Signal completion and wait for slave in two-device mode
+    if (TEST_MODE == TEST_MODE_TWO_DEVICE && DEVICE_ROLE == ROLE_MASTER) {
+        sendCompleteSignal();
+        if (waitForComplete(5000)) {
+            if (VERBOSE_OUTPUT) {
+                safe_println(COLOR_GREEN "  ✓ Slave completed filter tests" COLOR_RESET);
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -1286,14 +1354,8 @@ void testRXB1Buffer() {
 
     // TWO_DEVICE MODE: Slave sends test frames, Master receives
     if (TEST_MODE == TEST_MODE_TWO_DEVICE && DEVICE_ROLE == ROLE_SLAVE) {
+        // Slave is called from runSlaveMode() which already handled waitForStartSignalAndAck()
         safe_println(COLOR_YELLOW "Slave: Sending RXB1 test frames for master..." COLOR_RESET);
-
-        // Wait for master's start signal
-        uint8_t test_id = 0;
-        if (!waitForStartSignal(&test_id, 10000)) {
-            safe_println(COLOR_RED "Slave: Timeout waiting for master start signal" COLOR_RESET);
-            return;
-        }
 
         // Send two frames for RXB0/RXB1 testing
         tx_frame.can_id = 0x301;
@@ -1308,15 +1370,21 @@ void testRXB1Buffer() {
         mcp2515.sendMessage(&tx_frame);
         delay(100);
 
+        // Signal completion and wait for master to finish
         sendCompleteSignal();
+        if (waitForComplete(5000)) {
+            safe_println(COLOR_GREEN "  ✓ Master completed RXB1 tests" COLOR_RESET);
+        }
         return;
     }
 
-    // MASTER or LOOPBACK MODE: Run RXB1 buffer tests
-    if (TEST_MODE == TEST_MODE_TWO_DEVICE) {
-        // Signal slave to start sending
-        sendStartSignal(0x05);  // Test ID for RXB1 test
-        delay(100);
+    // MASTER MODE: Signal slave to start sending
+    if (TEST_MODE == TEST_MODE_TWO_DEVICE && DEVICE_ROLE == ROLE_MASTER) {
+        if (!sendStartSignalWithRetry(0x05, 5)) {  // Test ID 0x05, 5 retries
+            safe_println(COLOR_RED "ERROR: Failed to start slave for RXB1 test!" COLOR_RESET);
+            return;
+        }
+        delay(200);  // Give slave time to start sending
     }
 
     // Send two frames - first goes to RXB0, second may go to RXB1 if rollover enabled
@@ -1364,6 +1432,16 @@ void testRXB1Buffer() {
                    "RXB0 read completed");
 
     delay(20);  // **OPTIMIZED:** Reduced from 100ms
+
+    // **ENHANCED:** Signal completion and wait for slave in two-device mode
+    if (TEST_MODE == TEST_MODE_TWO_DEVICE && DEVICE_ROLE == ROLE_MASTER) {
+        sendCompleteSignal();
+        if (waitForComplete(5000)) {
+            if (VERBOSE_OUTPUT) {
+                safe_println(COLOR_GREEN "  ✓ Slave completed RXB1 tests" COLOR_RESET);
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -1636,25 +1714,33 @@ void testStatistics() {
     // TWO_DEVICE MODE: Coordinate with slave to receive frames
     if (TEST_MODE == TEST_MODE_TWO_DEVICE) {
         if (DEVICE_ROLE == ROLE_SLAVE) {
+            // Slave is called from runSlaveMode() which already handled waitForStartSignalAndAck()
+            safe_println(COLOR_YELLOW "Slave: Sending statistics test frames for master..." COLOR_RESET);
+
             // Slave: Send frames for master to receive
-            uint8_t test_id = 0;
-            if (waitForStartSignal(&test_id, 10000)) {
-                for (int i = 0; i < 10; i++) {
-                    struct can_frame frame;
-                    frame.can_id = 0x410 + i;
-                    frame.can_dlc = 2;
-                    frame.data[0] = 0xA0 + i;
-                    frame.data[1] = i;
-                    mcp2515.sendMessage(&frame);
-                    delay(20);
-                }
-                sendCompleteSignal();
+            for (int i = 0; i < 10; i++) {
+                struct can_frame frame;
+                frame.can_id = 0x410 + i;
+                frame.can_dlc = 2;
+                frame.data[0] = 0xA0 + i;
+                frame.data[1] = i;
+                mcp2515.sendMessage(&frame);
+                delay(20);
+            }
+
+            // Signal completion and wait for master to finish
+            sendCompleteSignal();
+            if (waitForComplete(5000)) {
+                safe_println(COLOR_GREEN "  ✓ Master completed statistics tests" COLOR_RESET);
             }
             return;  // Slave done
         } else {
-            // Master: Receive frames from slave
-            sendStartSignal(0x06);  // Signal slave to send
-            delay(50);
+            // Master: Signal slave to start, then receive frames
+            if (!sendStartSignalWithRetry(0x06, 5)) {  // Test ID 0x06, 5 retries
+                safe_println(COLOR_RED "ERROR: Failed to start slave for statistics test!" COLOR_RESET);
+                return;
+            }
+            delay(100);  // Give slave time to start sending
 
             mcp2515_statistics_t stats_rx_before;
             mcp2515.getStatistics(&stats_rx_before);
@@ -1681,6 +1767,10 @@ void testStatistics() {
             if (VERBOSE_OUTPUT) {
                 safe_printf("  Frames received: %lu, RX delta: %lu\n", frames_received, rx_delta);
             }
+
+            // Send completion signal and wait for slave
+            sendCompleteSignal();
+            waitForComplete(5000);
         }
     } else {
         // LOOPBACK MODE: Frames loop back to RX
@@ -2296,15 +2386,235 @@ bool waitForModeChange(uint8_t target_mode, uint32_t timeout_ms) {
     return false;
 }
 
+/**
+ * Clear all pending messages from RX buffers to prevent contamination between tests
+ * Returns number of frames cleared
+ */
+void clearRXBuffer() {
+    struct can_frame temp;
+    uint32_t cleared = 0;
+    while (mcp2515.checkReceive() && cleared < 100) {  // Safety limit
+        mcp2515.readMessage(&temp);
+        cleared++;
+    }
+    if (VERBOSE_OUTPUT && cleared > 0) {
+        safe_printf("  %s[Cleared %lu stale frame%s]%s\n",
+                   COLOR_YELLOW, cleared, cleared == 1 ? "" : "s", COLOR_RESET);
+    }
+}
+
 // ============================================================================
-// TWO-DEVICE MODE COORDINATION PROTOCOL
+// ENHANCED TWO-DEVICE MODE COORDINATION PROTOCOL
+// ============================================================================
+//
+// This protocol ensures robust synchronization between master and slave:
+// 1. Slave continuously sends READY until master acknowledges
+// 2. Master sends START_TEST and waits for ACK (with retries)
+// 3. Both execute test
+// 4. Both send COMPLETE and wait for each other
+// 5. This allows devices to start in any order without timing issues
 // ============================================================================
 
 /**
- * Master: Wait for slave to signal ready
+ * Master: Wait for slave READY signal at startup
+ * Waits up to timeout_ms for slave to send SYNC_ID_READY
+ * Sends ACK back to slave to confirm receipt
  */
-bool waitForSlaveReady(uint32_t timeout_ms) {
+bool waitForSlaveReadyAtStartup(uint32_t timeout_ms) {
     if (TEST_MODE != TEST_MODE_TWO_DEVICE || DEVICE_ROLE != ROLE_MASTER) {
+        return true;  // Not applicable
+    }
+
+    safe_println(COLOR_YELLOW "⏳ Master: Waiting for slave READY signal..." COLOR_RESET);
+
+    uint32_t start = millis();
+    uint32_t last_print = 0;
+
+    while ((millis() - start) < timeout_ms) {
+        // Print progress every 5 seconds
+        if (millis() - last_print > 5000) {
+            safe_printf("  Still waiting... (%lu/%lu seconds)\n",
+                       (millis() - start) / 1000, timeout_ms / 1000);
+            last_print = millis();
+        }
+
+        if (mcp2515.checkReceive()) {
+            struct can_frame frame;
+            if (mcp2515.readMessage(&frame) == MCP2515::ERROR_OK) {
+                if ((frame.can_id & CAN_SFF_MASK) == SYNC_ID_READY) {
+                    safe_println(COLOR_GREEN "✓ Master: Slave READY signal received!" COLOR_RESET);
+
+                    // Send ACK to stop slave from continuously sending READY
+                    sendAck();
+                    delay(100);  // Give slave time to receive ACK
+
+                    return true;
+                }
+            }
+        }
+        delay(50);
+    }
+
+    safe_println(COLOR_RED "✗ Master: Timeout waiting for slave READY!" COLOR_RESET);
+    return false;
+}
+
+/**
+ * Slave: Continuously signal ready to master until ACK received
+ * Used at startup - sends READY every 500ms until master acknowledges
+ */
+void signalSlaveReadyContinuously() {
+    if (TEST_MODE != TEST_MODE_TWO_DEVICE || DEVICE_ROLE != ROLE_SLAVE) {
+        return;
+    }
+
+    safe_println(COLOR_YELLOW "⏳ Slave: Sending READY signals to master..." COLOR_RESET);
+
+    struct can_frame ready_frame;
+    ready_frame.can_id = SYNC_ID_READY;
+    ready_frame.can_dlc = 1;
+    ready_frame.data[0] = 0xAA;
+
+    uint32_t send_count = 0;
+    uint32_t start = millis();
+
+    while (true) {
+        // Send READY signal
+        mcp2515.sendMessage(&ready_frame);
+        send_count++;
+
+        if (send_count % 10 == 1) {  // Print every 10 sends (~5 seconds)
+            safe_printf("  READY signal #%lu sent (waiting %lu seconds)\n",
+                       send_count, (millis() - start) / 1000);
+        }
+
+        // Check for ACK from master
+        uint32_t ack_wait_start = millis();
+        while (millis() - ack_wait_start < 500) {  // Wait 500ms before next send
+            if (mcp2515.checkReceive()) {
+                struct can_frame frame;
+                if (mcp2515.readMessage(&frame) == MCP2515::ERROR_OK) {
+                    if ((frame.can_id & CAN_SFF_MASK) == SYNC_ID_ACK ||
+                        (frame.can_id & CAN_SFF_MASK) == SYNC_ID_START_TEST) {
+                        safe_println(COLOR_GREEN "✓ Slave: Master acknowledged! Ready for commands." COLOR_RESET);
+                        return;  // Master is ready
+                    }
+                }
+            }
+            delay(10);
+        }
+    }
+}
+
+/**
+ * Master: Send start signal with retry until ACK received
+ * Returns true if slave acknowledged, false if all retries failed
+ */
+bool sendStartSignalWithRetry(uint8_t test_id, uint32_t max_retries) {
+    if (TEST_MODE != TEST_MODE_TWO_DEVICE || DEVICE_ROLE != ROLE_MASTER) {
+        return true;  // Not applicable
+    }
+
+    if (VERBOSE_OUTPUT) {
+        safe_printf(COLOR_CYAN "→ Master: Sending START command (test ID 0x%02X)...\n" COLOR_RESET, test_id);
+    }
+
+    struct can_frame frame;
+    frame.can_id = SYNC_ID_START_TEST;
+    frame.can_dlc = 1;
+    frame.data[0] = test_id;
+
+    for (uint32_t attempt = 1; attempt <= max_retries; attempt++) {
+        // Clear RX buffer before sending
+        clearRXBuffer();
+
+        // Send start signal
+        mcp2515.sendMessage(&frame);
+
+        // Wait for ACK
+        if (waitForAck(3000)) {
+            if (VERBOSE_OUTPUT) {
+                safe_println(COLOR_GREEN "  ✓ Slave acknowledged START command" COLOR_RESET);
+            }
+            return true;
+        }
+
+        if (attempt < max_retries) {
+            safe_printf(COLOR_YELLOW "  ⚠ No ACK (attempt %lu/%lu), retrying...\n" COLOR_RESET,
+                       attempt, max_retries);
+            delay(500);
+        }
+    }
+
+    safe_printf(COLOR_RED "  ✗ Failed to get ACK after %lu attempts!\n" COLOR_RESET, max_retries);
+    return false;
+}
+
+/**
+ * Slave: Wait for start signal and immediately send ACK
+ * Returns true if START_TEST received, false if timeout
+ */
+bool waitForStartSignalAndAck(uint8_t* test_id, uint32_t timeout_ms) {
+    if (TEST_MODE != TEST_MODE_TWO_DEVICE || DEVICE_ROLE != ROLE_SLAVE) {
+        return true;  // Not applicable
+    }
+
+    uint32_t start = millis();
+    uint32_t last_print = 0;
+
+    while ((millis() - start) < timeout_ms) {
+        // Print progress every 10 seconds
+        if (millis() - last_print > 10000) {
+            safe_printf("  Slave: Still waiting for command... (%lu seconds)\n",
+                       (millis() - start) / 1000);
+            last_print = millis();
+        }
+
+        if (mcp2515.checkReceive()) {
+            struct can_frame frame;
+            if (mcp2515.readMessage(&frame) == MCP2515::ERROR_OK) {
+                if ((frame.can_id & CAN_SFF_MASK) == SYNC_ID_START_TEST) {
+                    *test_id = frame.data[0];
+
+                    // Immediately send ACK
+                    sendAck();
+
+                    if (VERBOSE_OUTPUT) {
+                        safe_printf(COLOR_CYAN "← Slave: START command received (test ID 0x%02X), ACK sent\n" COLOR_RESET,
+                                   *test_id);
+                    }
+
+                    return true;
+                }
+            }
+        }
+        delay(50);
+    }
+
+    safe_println(COLOR_RED "✗ Slave: Timeout waiting for START command!" COLOR_RESET);
+    return false;
+}
+
+/**
+ * Send ACK signal
+ */
+void sendAck() {
+    if (TEST_MODE != TEST_MODE_TWO_DEVICE) {
+        return;
+    }
+
+    struct can_frame frame;
+    frame.can_id = SYNC_ID_ACK;
+    frame.can_dlc = 1;
+    frame.data[0] = (DEVICE_ROLE == ROLE_MASTER) ? 0xAA : 0xBB;
+    mcp2515.sendMessage(&frame);
+}
+
+/**
+ * Wait for ACK signal
+ */
+bool waitForAck(uint32_t timeout_ms) {
+    if (TEST_MODE != TEST_MODE_TWO_DEVICE) {
         return true;  // Not applicable
     }
 
@@ -2313,61 +2623,7 @@ bool waitForSlaveReady(uint32_t timeout_ms) {
         if (mcp2515.checkReceive()) {
             struct can_frame frame;
             if (mcp2515.readMessage(&frame) == MCP2515::ERROR_OK) {
-                if ((frame.can_id & CAN_SFF_MASK) == SYNC_ID_READY) {
-                    return true;
-                }
-            }
-        }
-        delay(10);
-    }
-    return false;
-}
-
-/**
- * Slave: Signal ready to master
- */
-void signalSlaveReady() {
-    if (TEST_MODE != TEST_MODE_TWO_DEVICE || DEVICE_ROLE != ROLE_SLAVE) {
-        return;  // Not applicable
-    }
-
-    struct can_frame frame;
-    frame.can_id = SYNC_ID_READY;
-    frame.can_dlc = 1;
-    frame.data[0] = 0xAA;  // Ready marker
-    mcp2515.sendMessage(&frame);
-}
-
-/**
- * Master: Send start signal to slave
- */
-void sendStartSignal(uint8_t test_id) {
-    if (TEST_MODE != TEST_MODE_TWO_DEVICE || DEVICE_ROLE != ROLE_MASTER) {
-        return;
-    }
-
-    struct can_frame frame;
-    frame.can_id = SYNC_ID_START_TEST;
-    frame.can_dlc = 1;
-    frame.data[0] = test_id;
-    mcp2515.sendMessage(&frame);
-}
-
-/**
- * Slave: Wait for start signal from master
- */
-bool waitForStartSignal(uint8_t* test_id, uint32_t timeout_ms) {
-    if (TEST_MODE != TEST_MODE_TWO_DEVICE || DEVICE_ROLE != ROLE_SLAVE) {
-        return true;
-    }
-
-    uint32_t start = millis();
-    while ((millis() - start) < timeout_ms) {
-        if (mcp2515.checkReceive()) {
-            struct can_frame frame;
-            if (mcp2515.readMessage(&frame) == MCP2515::ERROR_OK) {
-                if ((frame.can_id & CAN_SFF_MASK) == SYNC_ID_START_TEST) {
-                    *test_id = frame.data[0];
+                if ((frame.can_id & CAN_SFF_MASK) == SYNC_ID_ACK) {
                     return true;
                 }
             }
@@ -2390,6 +2646,40 @@ void sendCompleteSignal() {
     frame.can_dlc = 1;
     frame.data[0] = (DEVICE_ROLE == ROLE_MASTER) ? 0xAA : 0xBB;
     mcp2515.sendMessage(&frame);
+
+    if (VERBOSE_OUTPUT) {
+        safe_printf(COLOR_CYAN "%s COMPLETE signal sent\n" COLOR_RESET,
+                   DEVICE_ROLE == ROLE_MASTER ? "→" : "←");
+    }
+}
+
+/**
+ * Wait for completion signal from other device
+ */
+bool waitForComplete(uint32_t timeout_ms) {
+    if (TEST_MODE != TEST_MODE_TWO_DEVICE) {
+        return true;  // Not applicable
+    }
+
+    uint32_t start = millis();
+    while ((millis() - start) < timeout_ms) {
+        if (mcp2515.checkReceive()) {
+            struct can_frame frame;
+            if (mcp2515.readMessage(&frame) == MCP2515::ERROR_OK) {
+                if ((frame.can_id & CAN_SFF_MASK) == SYNC_ID_COMPLETE) {
+                    if (VERBOSE_OUTPUT) {
+                        safe_printf(COLOR_GREEN "%s COMPLETE signal received\n" COLOR_RESET,
+                                   DEVICE_ROLE == ROLE_MASTER ? "←" : "→");
+                    }
+                    return true;
+                }
+            }
+        }
+        delay(10);
+    }
+
+    safe_printf(COLOR_YELLOW "⚠ Timeout waiting for COMPLETE signal\n" COLOR_RESET);
+    return false;
 }
 
 // ============================================================================
@@ -2399,6 +2689,8 @@ void sendCompleteSignal() {
 /**
  * Slave mode handler - waits for commands from master and executes tests
  * This function never returns - it loops indefinitely waiting for commands
+ *
+ * ENHANCED: Uses continuous READY signaling to synchronize with master
  */
 void runSlaveMode() {
     SAFE_SERIAL_BLOCK();
@@ -2434,66 +2726,61 @@ void runSlaveMode() {
     Serial.println(COLOR_GREEN "OK" COLOR_RESET);
     Serial.println();
 
-    // Signal ready to master
-    Serial.println(COLOR_YELLOW "Signaling READY to master..." COLOR_RESET);
-    signalSlaveReady();
-    delay(500);
+    // **ENHANCED:** Continuously signal READY until master acknowledges
+    // This allows slave to start before master without timing issues
+    signalSlaveReadyContinuously();
 
-    Serial.println(COLOR_GREEN "Slave initialized and ready!" COLOR_RESET);
-    Serial.println(COLOR_YELLOW "Waiting for commands from master..." COLOR_RESET);
+    Serial.println();
+    Serial.println(COLOR_GREEN "✓ Synchronized with master!" COLOR_RESET);
+    Serial.println(COLOR_YELLOW "Waiting for test commands..." COLOR_RESET);
     Serial.println();
 
     // Main loop - wait for commands from master
     uint32_t commands_received = 0;
     while (true) {
-        // Check for incoming command from master
-        if (mcp2515.checkReceive()) {
-            struct can_frame frame;
-            if (mcp2515.readMessage(&frame) == MCP2515::ERROR_OK) {
-                uint32_t can_id = frame.can_id & CAN_SFF_MASK;
+        uint8_t test_id = 0;
 
-                // Check if it's a start test command
-                if (can_id == SYNC_ID_START_TEST) {
-                    uint8_t test_id = frame.data[0];
-                    commands_received++;
+        // **ENHANCED:** Use new protocol - wait for START and send ACK
+        if (waitForStartSignalAndAck(&test_id, 60000)) {  // 60s timeout
+            commands_received++;
 
-                    {
-                        SAFE_SERIAL_BLOCK();
-                        Serial.println();
-                        Serial.printf(COLOR_CYAN "Command #%lu received: Test ID 0x%02X\n" COLOR_RESET,
-                                     commands_received, test_id);
-                    }
-
-                    // Execute test based on test_id
-                    // Note: Individual test functions check for slave mode and behave accordingly
-                    switch(test_id) {
-                        case 0x04:  // Filter tests
-                            safe_println(COLOR_YELLOW "  → Executing: Filter test frames" COLOR_RESET);
-                            testFiltersAndMasks();
-                            break;
-
-                        case 0x05:  // RXB1 buffer tests
-                            safe_println(COLOR_YELLOW "  → Executing: RXB1 buffer test frames" COLOR_RESET);
-                            testRXB1Buffer();
-                            break;
-
-                        case 0x06:  // Statistics RX counter test
-                            safe_println(COLOR_YELLOW "  → Executing: Statistics RX counter test" COLOR_RESET);
-                            testStatistics();
-                            break;
-
-                        default:
-                            safe_printf(COLOR_YELLOW "  → Unknown test ID 0x%02X - no action\n" COLOR_RESET, test_id);
-                            break;
-                    }
-
-                    safe_println(COLOR_GREEN "  ✓ Command completed\n" COLOR_RESET);
-                }
+            {
+                SAFE_SERIAL_BLOCK();
+                Serial.println();
+                Serial.println(COLOR_BOLD COLOR_BLUE "┌────────────────────────────────────────┐" COLOR_RESET);
+                Serial.printf(COLOR_BOLD COLOR_BLUE "│ Command #%lu: Test ID 0x%02X             │\n" COLOR_RESET,
+                             commands_received, test_id);
+                Serial.println(COLOR_BOLD COLOR_BLUE "└────────────────────────────────────────┘" COLOR_RESET);
             }
-        }
 
-        // Small delay to prevent tight polling
-        delay(10);
+            // Execute test based on test_id
+            // Note: Individual test functions check for slave mode and behave accordingly
+            switch(test_id) {
+                case 0x04:  // Filter tests
+                    safe_println(COLOR_YELLOW "  → Executing: Filter test frames" COLOR_RESET);
+                    testFiltersAndMasks();
+                    break;
+
+                case 0x05:  // RXB1 buffer tests
+                    safe_println(COLOR_YELLOW "  → Executing: RXB1 buffer test frames" COLOR_RESET);
+                    testRXB1Buffer();
+                    break;
+
+                case 0x06:  // Statistics RX counter test
+                    safe_println(COLOR_YELLOW "  → Executing: Statistics RX counter test" COLOR_RESET);
+                    testStatistics();
+                    break;
+
+                default:
+                    safe_printf(COLOR_YELLOW "  → Unknown test ID 0x%02X - no action\n" COLOR_RESET, test_id);
+                    break;
+            }
+
+            safe_println(COLOR_GREEN "  ✓ Command completed\n" COLOR_RESET);
+
+            // Clear RX buffer before next command
+            clearRXBuffer();
+        }
     }
 }
 
