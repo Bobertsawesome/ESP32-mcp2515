@@ -50,7 +50,7 @@
 // ============================================================================
 
 // **NEW** Multi-Speed Test Mode - Set to true to run tests at all major CAN speeds
-#define ENABLE_MULTI_SPEED_TEST   false      // Set to true for comprehensive speed sweep
+#define ENABLE_MULTI_SPEED_TEST   true      // Set to true for comprehensive speed sweep
 
 // Multi-Speed Configuration (only used if ENABLE_MULTI_SPEED_TEST is true)
 const CAN_SPEED MULTI_SPEED_TEST_SPEEDS[] = {
@@ -234,6 +234,17 @@ void runComprehensiveTests();
 void runComprehensiveTestsAtSpeed(CAN_SPEED speed);
 void printMultiSpeedComparison();
 
+// **NEW:** Optimized timing and two-device coordination helpers
+bool waitForMessage(uint32_t timeout_ms);
+bool waitForMessageAndRead(struct can_frame* frame, uint32_t timeout_ms);
+bool waitForTXBuffer(uint32_t timeout_ms);
+bool waitForModeChange(uint8_t target_mode, uint32_t timeout_ms);
+bool waitForSlaveReady(uint32_t timeout_ms = 5000);
+void signalSlaveReady();
+void sendStartSignal(uint8_t test_id);
+bool waitForStartSignal(uint8_t* test_id, uint32_t timeout_ms = 10000);
+void sendCompleteSignal();
+
 // Forward declarations for test functions
 void testInitialization();
 void testOperatingModes();
@@ -308,7 +319,7 @@ void setup() {
         Serial.println();
     }
 
-    delay(2000);
+    delay(500);  // **OPTIMIZED:** Reduced from 2000ms
 
     // Initialize SPI
     SPI.begin(SPI_SCK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, SPI_CS_PIN);
@@ -396,7 +407,7 @@ void runMultiSpeedTests() {
         }
         Serial.println(COLOR_BOLD "─────────────────────────────────────────────────────────────────" COLOR_RESET);
 
-        delay(2000); // Pause between speeds
+        delay(500);  // **OPTIMIZED:** Reduced from 2000ms // Pause between speeds
     }
 
     // Print comprehensive multi-speed comparison
@@ -760,13 +771,7 @@ void testBitrateConfiguration() {
 void testFiltersAndMasks() {
     printSectionHeader("FILTER AND MASK TESTS - FUNCTIONAL VERIFICATION");
 
-    // **FIX:** This test now actually verifies filtering works, not just that set functions return OK
-
-    if (TEST_MODE != TEST_MODE_LOOPBACK) {
-        safe_println(COLOR_YELLOW "Filter verification requires loopback mode - skipping" COLOR_RESET);
-        test_stats.skipped_tests += 6;
-        return;
-    }
+    // **ENHANCED:** Now works in BOTH loopback and two-device modes with optimized timing
 
     struct can_frame tx_frame, rx_frame;
     MCP2515::ERROR err;
@@ -776,6 +781,38 @@ void testFiltersAndMasks() {
         mcp2515.readMessage(&rx_frame);
     }
 
+    // TWO_DEVICE MODE: Slave sends test frames, Master receives and verifies filtering
+    if (TEST_MODE == TEST_MODE_TWO_DEVICE && DEVICE_ROLE == ROLE_SLAVE) {
+        safe_println(COLOR_YELLOW "Slave: Sending filter test frames for master..." COLOR_RESET);
+
+        // Wait for master's start signal
+        uint8_t test_id = 0;
+        if (!waitForStartSignal(&test_id, 10000)) {
+            safe_println(COLOR_RED "Slave: Timeout waiting for master start signal" COLOR_RESET);
+            return;
+        }
+
+        // Send test frames for each filter test
+        const uint32_t test_ids[] = {0x100, 0x101, 0x102, 0x103, 0x123, 0x456, 0x123, 0x456, 0x12345678 | CAN_EFF_FLAG};
+        for (uint8_t i = 0; i < 9; i++) {
+            tx_frame.can_id = test_ids[i];
+            tx_frame.can_dlc = 1;
+            tx_frame.data[0] = 0xA0 + i;
+            mcp2515.sendMessage(&tx_frame);
+            delay(100);  // Give master time to process
+        }
+
+        sendCompleteSignal();
+        return;
+    }
+
+    // MASTER or LOOPBACK MODE: Run filter verification tests
+    if (TEST_MODE == TEST_MODE_TWO_DEVICE) {
+        // Signal slave to start sending
+        sendStartSignal(0x04);  // Test ID for filter test
+        delay(100);
+    }
+
     // ===================================================================
     // Test 1: Accept All (Mask = 0x000)
     // ===================================================================
@@ -783,19 +820,20 @@ void testFiltersAndMasks() {
 
     mcp2515.setFilterMask(MCP2515::MASK0, false, 0x000);  // All bits don't care
     mcp2515.setFilter(MCP2515::RXF0, false, 0x000);
-    delay(50);
+    delay(20);  // **OPTIMIZED:** Reduced from 50ms to 20ms (filter config is fast)
 
     // Send different IDs - all should be accepted
     bool accept_all_works = true;
     for (uint32_t test_id = 0x100; test_id <= 0x103; test_id++) {
-        tx_frame.can_id = test_id;
-        tx_frame.can_dlc = 1;
-        tx_frame.data[0] = (uint8_t)test_id;
+        if (TEST_MODE == TEST_MODE_LOOPBACK) {
+            tx_frame.can_id = test_id;
+            tx_frame.can_dlc = 1;
+            tx_frame.data[0] = (uint8_t)test_id;
+            mcp2515.sendMessage(&tx_frame);
+        }
 
-        mcp2515.sendMessage(&tx_frame);
-        delay(100);
-
-        if (!mcp2515.checkReceive()) {
+        // **OPTIMIZED:** Polling replaces delay(100) - typically 10-50ms
+        if (!waitForMessage(150)) {
             accept_all_works = false;
             break;
         }
@@ -817,17 +855,17 @@ void testFiltersAndMasks() {
     // Set filter to ONLY accept 0x123
     mcp2515.setFilterMask(MCP2515::MASK0, false, 0x7FF);  // Match all 11 bits
     mcp2515.setFilter(MCP2515::RXF0, false, 0x123);
-    delay(50);
+    delay(20);  // **OPTIMIZED:** Reduced from 50ms
 
     // Test 2a: Matching frame SHOULD be accepted
-    tx_frame.can_id = 0x123;
-    tx_frame.can_dlc = 1;
-    tx_frame.data[0] = 0xAA;
+    if (TEST_MODE == TEST_MODE_LOOPBACK) {
+        tx_frame.can_id = 0x123;
+        tx_frame.can_dlc = 1;
+        tx_frame.data[0] = 0xAA;
+        mcp2515.sendMessage(&tx_frame);
+    }
 
-    mcp2515.sendMessage(&tx_frame);
-    delay(100);
-
-    bool matching_accepted = mcp2515.checkReceive();
+    bool matching_accepted = waitForMessage(150);  // **OPTIMIZED:** Polling replaces delay(100)
     printTestResult(matching_accepted, "Matching frame 0x123 accepted");
 
     if (matching_accepted) {
@@ -841,14 +879,15 @@ void testFiltersAndMasks() {
     // Test 2b: Non-matching frame SHOULD be rejected
     printTestHeader("Filter Test: Reject Non-Matching Frame");
 
-    tx_frame.can_id = 0x456;  // Different ID
-    tx_frame.can_dlc = 1;
-    tx_frame.data[0] = 0xBB;
+    if (TEST_MODE == TEST_MODE_LOOPBACK) {
+        tx_frame.can_id = 0x456;  // Different ID
+        tx_frame.can_dlc = 1;
+        tx_frame.data[0] = 0xBB;
+        mcp2515.sendMessage(&tx_frame);
+    }
 
-    mcp2515.sendMessage(&tx_frame);
-    delay(100);
-
-    bool nonmatching_rejected = !mcp2515.checkReceive();
+    // **OPTIMIZED:** Use polling with shorter timeout for rejection test (should timeout)
+    bool nonmatching_rejected = !waitForMessage(150);
     printTestResult(nonmatching_rejected, "Non-matching frame 0x456 rejected");
 
     // ===================================================================
@@ -864,26 +903,28 @@ void testFiltersAndMasks() {
     // Filter: Match upper 3 bits only (0x100-0x1FF should pass)
     mcp2515.setFilterMask(MCP2515::MASK0, false, 0x700);
     mcp2515.setFilter(MCP2515::RXF0, false, 0x100);
-    delay(50);
+    delay(20);  // **OPTIMIZED:** Reduced from 50ms
 
     // 0x123 should match (upper bits = 0x100)
-    tx_frame.can_id = 0x123;
-    tx_frame.can_dlc = 1;
-    tx_frame.data[0] = 0xCC;
-    mcp2515.sendMessage(&tx_frame);
-    delay(100);
+    if (TEST_MODE == TEST_MODE_LOOPBACK) {
+        tx_frame.can_id = 0x123;
+        tx_frame.can_dlc = 1;
+        tx_frame.data[0] = 0xCC;
+        mcp2515.sendMessage(&tx_frame);
+    }
 
-    bool partial_match_pass = mcp2515.checkReceive();
+    bool partial_match_pass = waitForMessage(150);  // **OPTIMIZED:** Polling
     if (partial_match_pass) mcp2515.readMessage(&rx_frame);
 
     // 0x456 should NOT match (upper bits = 0x400)
-    tx_frame.can_id = 0x456;
-    tx_frame.can_dlc = 1;
-    tx_frame.data[0] = 0xDD;
-    mcp2515.sendMessage(&tx_frame);
-    delay(100);
+    if (TEST_MODE == TEST_MODE_LOOPBACK) {
+        tx_frame.can_id = 0x456;
+        tx_frame.can_dlc = 1;
+        tx_frame.data[0] = 0xDD;
+        mcp2515.sendMessage(&tx_frame);
+    }
 
-    bool partial_match_reject = !mcp2515.checkReceive();
+    bool partial_match_reject = !waitForMessage(150);  // **OPTIMIZED:** Polling
 
     bool partial_match_ok = partial_match_pass && partial_match_reject;
     printTestResult(partial_match_ok, "Partial mask (0x700) filtered correctly");
@@ -901,18 +942,18 @@ void testFiltersAndMasks() {
     // Set extended ID filter
     mcp2515.setFilterMask(MCP2515::MASK1, true, 0x1FFFFFFF);  // Match all 29 bits
     mcp2515.setFilter(MCP2515::RXF2, true, 0x12345678);
-    delay(50);
+    delay(20);  // **OPTIMIZED:** Reduced from 50ms
 
     // Matching extended frame
-    tx_frame.can_id = 0x12345678 | CAN_EFF_FLAG;
-    tx_frame.can_dlc = 2;
-    tx_frame.data[0] = 0xEE;
-    tx_frame.data[1] = 0xFF;
+    if (TEST_MODE == TEST_MODE_LOOPBACK) {
+        tx_frame.can_id = 0x12345678 | CAN_EFF_FLAG;
+        tx_frame.can_dlc = 2;
+        tx_frame.data[0] = 0xEE;
+        tx_frame.data[1] = 0xFF;
+        mcp2515.sendMessage(&tx_frame);
+    }
 
-    mcp2515.sendMessage(&tx_frame);
-    delay(100);
-
-    bool ext_accepted = mcp2515.checkReceive();
+    bool ext_accepted = waitForMessage(150);  // **OPTIMIZED:** Polling
     printTestResult(ext_accepted, "Extended ID 0x12345678 accepted");
 
     if (ext_accepted) {
@@ -957,7 +998,7 @@ void testFiltersAndMasks() {
     mcp2515.setFilterMask(MCP2515::MASK0, false, 0);
     mcp2515.setFilterMask(MCP2515::MASK1, false, 0);
 
-    delay(100);
+    delay(20);  // **OPTIMIZED:** Reduced from 100ms to 20ms
 }
 
 // ============================================================================
@@ -1102,23 +1143,12 @@ void testFrameReception() {
     // Send the test frame
     MCP2515::ERROR err = mcp2515.sendMessage(&tx_frame);
 
+    // **OPTIMIZED:** Use polling instead of fixed delays - typically 10-50ms vs 100-150ms
     #if ENABLE_DATA_INTEGRITY_FIX
-    // **FIX:** Critical delay to allow loopback to complete
-    delay(100);  // Increased delay for reliable loopback
+    bool has_message = waitForMessage(150);  // Poll with 150ms timeout (was: delay(100) + delay(50) retry)
     #else
-    delay(50);
+    bool has_message = waitForMessage(50);   // Poll with 50ms timeout (was: delay(50))
     #endif
-
-    // Now check for reception
-    bool has_message = mcp2515.checkReceive();
-
-    if (!has_message) {
-        #if ENABLE_DATA_INTEGRITY_FIX
-        // **FIX:** Try waiting a bit longer
-        delay(50);
-        has_message = mcp2515.checkReceive();
-        #endif
-    }
 
     // Read the message
     struct can_frame rx_frame;
@@ -2089,6 +2119,170 @@ bool checkTXBufferAvailable() {
     uint8_t status = mcp2515.getStatus();
     // Check if any TX buffer is not pending transmission
     return !(status & 0x54);  // Bits 2, 4, 6 indicate TX pending
+}
+
+// ============================================================================
+// OPTIMIZED TIMING HELPERS - Poll instead of fixed delays
+// ============================================================================
+
+/**
+ * Poll for message availability with timeout (replaces fixed delay + checkReceive)
+ * This is MUCH faster than fixed 100ms delays - typically 1-50ms in practice
+ */
+bool waitForMessage(uint32_t timeout_ms) {
+    uint32_t start = millis();
+    while ((millis() - start) < timeout_ms) {
+        if (mcp2515.checkReceive()) {
+            return true;
+        }
+        delayMicroseconds(100);  // Poll every 100µs
+    }
+    return false;
+}
+
+/**
+ * Poll for message and read it with timeout
+ */
+bool waitForMessageAndRead(struct can_frame* frame, uint32_t timeout_ms) {
+    if (waitForMessage(timeout_ms)) {
+        MCP2515::ERROR err = mcp2515.readMessage(frame);
+        return (err == MCP2515::ERROR_OK);
+    }
+    return false;
+}
+
+/**
+ * Poll for TX buffer availability with timeout
+ */
+bool waitForTXBuffer(uint32_t timeout_ms) {
+    uint32_t start = millis();
+    while ((millis() - start) < timeout_ms) {
+        if (checkTXBufferAvailable()) {
+            return true;
+        }
+        delayMicroseconds(50);
+    }
+    return false;
+}
+
+/**
+ * Smart delay for mode transitions - polls CANSTAT to verify mode change
+ * Returns true if mode changed successfully, false if timeout
+ */
+bool waitForModeChange(uint8_t target_mode, uint32_t timeout_ms) {
+    uint32_t start = millis();
+    while ((millis() - start) < timeout_ms) {
+        uint8_t canstat = mcp2515.readRegister(MCP2515::MCP_CANSTAT);
+        uint8_t current_mode = (canstat >> 5) & 0x07;
+        if (current_mode == target_mode) {
+            return true;
+        }
+        delayMicroseconds(100);
+    }
+    return false;
+}
+
+// ============================================================================
+// TWO-DEVICE MODE COORDINATION PROTOCOL
+// ============================================================================
+
+// Special CAN IDs for master/slave synchronization
+#define SYNC_ID_READY        0x7F0  // Slave signals ready
+#define SYNC_ID_START_TEST   0x7F1  // Master signals test start
+#define SYNC_ID_TEST_FRAME   0x7F2  // Test frame from slave
+#define SYNC_ID_ACK          0x7F3  // Acknowledgment
+#define SYNC_ID_COMPLETE     0x7F4  // Test complete
+
+/**
+ * Master: Wait for slave to signal ready
+ */
+bool waitForSlaveReady(uint32_t timeout_ms = 5000) {
+    if (TEST_MODE != TEST_MODE_TWO_DEVICE || DEVICE_ROLE != ROLE_MASTER) {
+        return true;  // Not applicable
+    }
+
+    uint32_t start = millis();
+    while ((millis() - start) < timeout_ms) {
+        if (mcp2515.checkReceive()) {
+            struct can_frame frame;
+            if (mcp2515.readMessage(&frame) == MCP2515::ERROR_OK) {
+                if ((frame.can_id & CAN_SFF_MASK) == SYNC_ID_READY) {
+                    return true;
+                }
+            }
+        }
+        delay(10);
+    }
+    return false;
+}
+
+/**
+ * Slave: Signal ready to master
+ */
+void signalSlaveReady() {
+    if (TEST_MODE != TEST_MODE_TWO_DEVICE || DEVICE_ROLE != ROLE_SLAVE) {
+        return;  // Not applicable
+    }
+
+    struct can_frame frame;
+    frame.can_id = SYNC_ID_READY;
+    frame.can_dlc = 1;
+    frame.data[0] = 0xAA;  // Ready marker
+    mcp2515.sendMessage(&frame);
+}
+
+/**
+ * Master: Send start signal to slave
+ */
+void sendStartSignal(uint8_t test_id) {
+    if (TEST_MODE != TEST_MODE_TWO_DEVICE || DEVICE_ROLE != ROLE_MASTER) {
+        return;
+    }
+
+    struct can_frame frame;
+    frame.can_id = SYNC_ID_START_TEST;
+    frame.can_dlc = 1;
+    frame.data[0] = test_id;
+    mcp2515.sendMessage(&frame);
+}
+
+/**
+ * Slave: Wait for start signal from master
+ */
+bool waitForStartSignal(uint8_t* test_id, uint32_t timeout_ms = 10000) {
+    if (TEST_MODE != TEST_MODE_TWO_DEVICE || DEVICE_ROLE != ROLE_SLAVE) {
+        return true;
+    }
+
+    uint32_t start = millis();
+    while ((millis() - start) < timeout_ms) {
+        if (mcp2515.checkReceive()) {
+            struct can_frame frame;
+            if (mcp2515.readMessage(&frame) == MCP2515::ERROR_OK) {
+                if ((frame.can_id & CAN_SFF_MASK) == SYNC_ID_START_TEST) {
+                    *test_id = frame.data[0];
+                    return true;
+                }
+            }
+        }
+        delay(10);
+    }
+    return false;
+}
+
+/**
+ * Send test completion signal
+ */
+void sendCompleteSignal() {
+    if (TEST_MODE != TEST_MODE_TWO_DEVICE) {
+        return;
+    }
+
+    struct can_frame frame;
+    frame.can_id = SYNC_ID_COMPLETE;
+    frame.can_dlc = 1;
+    frame.data[0] = (DEVICE_ROLE == ROLE_MASTER) ? 0xAA : 0xBB;
+    mcp2515.sendMessage(&frame);
 }
 
 // **NEW:** Calculate theoretical max frames per second for a given CAN speed
