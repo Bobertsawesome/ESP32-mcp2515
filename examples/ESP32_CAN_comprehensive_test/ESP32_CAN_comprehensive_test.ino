@@ -215,6 +215,9 @@ struct test_stats_t {
     uint32_t warnings;
 };
 
+// Hardware detection flag
+bool hardware_detected = false;
+
 // Multi-speed test results
 struct speed_test_result_t {
     CAN_SPEED speed;
@@ -585,18 +588,9 @@ void runComprehensiveTests() {
     current_test_speed = CONFIG_CAN_SPEED;
 
     // **CRITICAL:** Verify hardware is actually connected before running tests
-    // This prevents false test passes when running without hardware
-    if (!verifyHardwareConnected()) {
-        Serial.println();
-        Serial.println(COLOR_BOLD COLOR_RED "╔════════════════════════════════════════════════════════════════╗" COLOR_RESET);
-        Serial.println(COLOR_BOLD COLOR_RED "║  HARDWARE VERIFICATION FAILED - TESTS ABORTED                 ║" COLOR_RESET);
-        Serial.println(COLOR_BOLD COLOR_RED "╚════════════════════════════════════════════════════════════════╝" COLOR_RESET);
-        Serial.println();
-        Serial.println(COLOR_RED "Cannot proceed without MCP2515 hardware connected." COLOR_RESET);
-        Serial.println(COLOR_RED "Please check wiring and power, then reset the device." COLOR_RESET);
-        Serial.println();
-        while(1) delay(1000);  // Halt forever - cannot proceed without hardware
-    }
+    // This detects false test passes when running without hardware
+    // Note: Test suite continues regardless to show which tests give false positives
+    hardware_detected = verifyHardwareConnected();
 
     // **ENHANCED:** Wait for slave to be ready before starting tests
     if (TEST_MODE == TEST_MODE_TWO_DEVICE && DEVICE_ROLE == ROLE_MASTER) {
@@ -2409,7 +2403,7 @@ bool waitForModeChange(uint8_t target_mode, uint32_t timeout_ms) {
 
 /**
  * Comprehensive hardware connectivity check to detect if MCP2515 is actually connected
- * This prevents false test passes when running without hardware.
+ * This helps identify false test passes when running without hardware.
  *
  * Verification steps:
  * 1. Check for floating MISO (0xFF indicates no SPI connection)
@@ -2418,6 +2412,7 @@ bool waitForModeChange(uint8_t target_mode, uint32_t timeout_ms) {
  * 4. Attempt simple loopback validation in loopback mode
  *
  * Returns: true if hardware is connected and responding, false otherwise
+ * NOTE: Test suite continues regardless of result to show false positives
  */
 bool verifyHardwareConnected() {
     SAFE_SERIAL_BLOCK();
@@ -2426,6 +2421,9 @@ bool verifyHardwareConnected() {
     Serial.println(COLOR_BOLD COLOR_BLUE "║  HARDWARE CONNECTIVITY VERIFICATION                           ║" COLOR_RESET);
     Serial.println(COLOR_BOLD COLOR_BLUE "╚════════════════════════════════════════════════════════════════╝" COLOR_RESET);
     Serial.println();
+
+    uint8_t tests_passed = 0;
+    uint8_t total_tests = 5;
 
     // Test 1: Check for floating MISO (0xFF = no connection)
     Serial.println(COLOR_YELLOW "Test 1: Checking for floating SPI MISO line..." COLOR_RESET);
@@ -2444,18 +2442,17 @@ bool verifyHardwareConnected() {
         Serial.println(COLOR_RED "  ✗ FAIL - MISO line floating (all reads = 0xFF)" COLOR_RESET);
         Serial.println(COLOR_RED "  → No SPI connection detected!" COLOR_RESET);
         Serial.println();
-        Serial.println(COLOR_RED "ERROR: MCP2515 hardware not detected!" COLOR_RESET);
-        Serial.println();
         Serial.println("Possible causes:");
         Serial.println("  • MCP2515 module not connected");
         Serial.println("  • Incorrect SPI wiring (MISO/MOSI/SCK/CS)");
         Serial.println("  • MCP2515 not powered");
         Serial.println("  • Wrong CS pin configured");
         Serial.println("  • SPI bus not initialized");
-        return false;
+        Serial.println();
+    } else {
+        Serial.println(COLOR_GREEN "  ✓ PASS - SPI MISO responding (not floating)" COLOR_RESET);
+        tests_passed++;
     }
-
-    Serial.println(COLOR_GREEN "  ✓ PASS - SPI MISO responding (not floating)" COLOR_RESET);
 
     // Test 2: Reset and verify response
     Serial.println(COLOR_YELLOW "Test 2: Verifying MCP2515 reset..." COLOR_RESET);
@@ -2465,16 +2462,15 @@ bool verifyHardwareConnected() {
         Serial.println(COLOR_RED "  ✗ FAIL - Reset failed" COLOR_RESET);
         Serial.println(COLOR_RED "  → MCP2515 not responding to reset command!" COLOR_RESET);
         Serial.println();
-        Serial.println(COLOR_RED "ERROR: MCP2515 hardware not responding properly!" COLOR_RESET);
-        Serial.println();
         Serial.println("Possible causes:");
         Serial.println("  • MCP2515 oscillator not running (check crystal)");
         Serial.println("  • MCP2515 in bad state");
         Serial.println("  • CS pin conflict with other SPI device");
-        return false;
+        Serial.println();
+    } else {
+        Serial.println(COLOR_GREEN "  ✓ PASS - MCP2515 reset successful" COLOR_RESET);
+        tests_passed++;
     }
-
-    Serial.println(COLOR_GREEN "  ✓ PASS - MCP2515 reset successful" COLOR_RESET);
 
     // Test 3: Bitrate configuration (requires entering CONFIG mode)
     Serial.println(COLOR_YELLOW "Test 3: Testing bitrate configuration..." COLOR_RESET);
@@ -2483,33 +2479,32 @@ bool verifyHardwareConnected() {
     if (err != MCP2515::ERROR_OK) {
         Serial.println(COLOR_RED "  ✗ FAIL - Cannot configure bitrate" COLOR_RESET);
         Serial.println(COLOR_RED "  → MCP2515 mode changes not working!" COLOR_RESET);
-        return false;
+        Serial.println();
+    } else {
+        Serial.println(COLOR_GREEN "  ✓ PASS - Bitrate configuration successful" COLOR_RESET);
+        tests_passed++;
     }
-
-    Serial.println(COLOR_GREEN "  ✓ PASS - Bitrate configuration successful" COLOR_RESET);
 
     // Test 4: Mode change verification (tests register read/write)
     Serial.println(COLOR_YELLOW "Test 4: Verifying mode change capability..." COLOR_RESET);
 
     err = mcp2515.setLoopbackMode();
-    if (err != MCP2515::ERROR_OK) {
-        Serial.println(COLOR_RED "  ✗ FAIL - Cannot set loopback mode" COLOR_RESET);
-        Serial.println(COLOR_RED "  → MCP2515 mode control not responding!" COLOR_RESET);
-        return false;
-    }
+    bool mode_set_ok = (err == MCP2515::ERROR_OK);
 
     // Verify mode actually changed by reading CANSTAT
     delay(20);
     uint8_t canstat = mcp2515.getBusStatus();
     uint8_t opmod = (canstat >> 5) & 0x07;
+    bool mode_verified = (opmod == CANSTAT_OPMOD_LOOPBACK);
 
-    if (opmod != CANSTAT_OPMOD_LOOPBACK) {
+    if (!mode_set_ok || !mode_verified) {
         Serial.printf(COLOR_RED "  ✗ FAIL - Mode verification failed (OPMOD=0x%02X, expected 0x02)\n" COLOR_RESET, opmod);
         Serial.println(COLOR_RED "  → MCP2515 not entering requested mode!" COLOR_RESET);
-        return false;
+        Serial.println();
+    } else {
+        Serial.printf(COLOR_GREEN "  ✓ PASS - Loopback mode verified (CANSTAT=0x%02X, OPMOD=0x%02X)\n" COLOR_RESET, canstat, opmod);
+        tests_passed++;
     }
-
-    Serial.printf(COLOR_GREEN "  ✓ PASS - Loopback mode verified (CANSTAT=0x%02X, OPMOD=0x%02X)\n" COLOR_RESET, canstat, opmod);
 
     // Test 5: Simple loopback transmission test (ultimate hardware validation)
     Serial.println(COLOR_YELLOW "Test 5: Loopback transmission test..." COLOR_RESET);
@@ -2530,65 +2525,64 @@ bool verifyHardwareConnected() {
     tx_frame.data[3] = 0xEF;
 
     err = mcp2515.sendMessage(&tx_frame);
-    if (err != MCP2515::ERROR_OK) {
-        Serial.println(COLOR_RED "  ✗ FAIL - Send failed in loopback" COLOR_RESET);
-        Serial.println(COLOR_RED "  → TX buffer operation failed!" COLOR_RESET);
-        return false;
-    }
+    bool send_ok = (err == MCP2515::ERROR_OK);
 
     // Wait for reception (in loopback, should be immediate)
     delay(50);
 
-    if (!mcp2515.checkReceive()) {
-        Serial.println(COLOR_RED "  ✗ FAIL - No message received in loopback" COLOR_RESET);
-        Serial.println(COLOR_RED "  → Loopback not functioning (critical hardware failure)!" COLOR_RESET);
+    bool receive_ok = mcp2515.checkReceive();
+    bool data_match = false;
+
+    if (receive_ok) {
+        // Read and verify the message
+        struct can_frame rx_frame;
+        err = mcp2515.readMessage(&rx_frame);
+        if (err == MCP2515::ERROR_OK) {
+            // Verify data integrity
+            data_match = (rx_frame.can_id == tx_frame.can_id &&
+                         rx_frame.can_dlc == tx_frame.can_dlc &&
+                         memcmp(rx_frame.data, tx_frame.data, tx_frame.can_dlc) == 0);
+        }
+    }
+
+    if (!send_ok || !receive_ok || !data_match) {
+        Serial.println(COLOR_RED "  ✗ FAIL - Loopback test failed" COLOR_RESET);
+        if (!send_ok) Serial.println(COLOR_RED "  → TX buffer operation failed!" COLOR_RESET);
+        if (!receive_ok) Serial.println(COLOR_RED "  → No message received in loopback!" COLOR_RESET);
+        if (receive_ok && !data_match) Serial.println(COLOR_RED "  → Data corruption detected!" COLOR_RESET);
         Serial.println();
-        Serial.println(COLOR_RED "ERROR: MCP2515 loopback test failed!" COLOR_RESET);
-        Serial.println();
-        Serial.println("This indicates a serious problem:");
+        Serial.println("This indicates:");
         Serial.println("  • MCP2515 internal logic not working");
         Serial.println("  • Oscillator failure");
         Serial.println("  • Defective chip");
-        return false;
-    }
-
-    // Read and verify the message
-    struct can_frame rx_frame;
-    err = mcp2515.readMessage(&rx_frame);
-    if (err != MCP2515::ERROR_OK) {
-        Serial.println(COLOR_RED "  ✗ FAIL - Could not read received message" COLOR_RESET);
-        return false;
-    }
-
-    // Verify data integrity
-    bool data_match = (rx_frame.can_id == tx_frame.can_id &&
-                       rx_frame.can_dlc == tx_frame.can_dlc &&
-                       memcmp(rx_frame.data, tx_frame.data, tx_frame.can_dlc) == 0);
-
-    if (!data_match) {
-        Serial.println(COLOR_RED "  ✗ FAIL - Data corruption in loopback" COLOR_RESET);
-        Serial.printf("    TX: ID=0x%03X DLC=%d Data=", tx_frame.can_id, tx_frame.can_dlc);
-        for (int i = 0; i < tx_frame.can_dlc; i++) Serial.printf("%02X ", tx_frame.data[i]);
         Serial.println();
-        Serial.printf("    RX: ID=0x%03X DLC=%d Data=", rx_frame.can_id, rx_frame.can_dlc);
-        for (int i = 0; i < rx_frame.can_dlc; i++) Serial.printf("%02X ", rx_frame.data[i]);
+    } else {
+        Serial.println(COLOR_GREEN "  ✓ PASS - Loopback TX/RX with data integrity verified" COLOR_RESET);
+        tests_passed++;
+    }
+
+    // Summary
+    Serial.println();
+    if (tests_passed == total_tests) {
+        Serial.println(COLOR_BOLD COLOR_GREEN "═══════════════════════════════════════════════════════════════" COLOR_RESET);
+        Serial.println(COLOR_BOLD COLOR_GREEN "  ✓ HARDWARE CONNECTIVITY VERIFIED ✓" COLOR_RESET);
+        Serial.println(COLOR_BOLD COLOR_GREEN "═══════════════════════════════════════════════════════════════" COLOR_RESET);
+        Serial.println();
+        Serial.printf(COLOR_GREEN "  All %d hardware verification tests passed!\n" COLOR_RESET, total_tests);
+        Serial.println(COLOR_GREEN "  MCP2515 is connected and functioning correctly." COLOR_RESET);
+        Serial.println();
+        return true;
+    } else {
+        Serial.println(COLOR_BOLD COLOR_RED "═══════════════════════════════════════════════════════════════" COLOR_RESET);
+        Serial.println(COLOR_BOLD COLOR_RED "  ✗ HARDWARE CONNECTIVITY FAILED ✗" COLOR_RESET);
+        Serial.println(COLOR_BOLD COLOR_RED "═══════════════════════════════════════════════════════════════" COLOR_RESET);
+        Serial.println();
+        Serial.printf(COLOR_RED "  Hardware verification: %d/%d tests passed\n" COLOR_RESET, tests_passed, total_tests);
+        Serial.println(COLOR_YELLOW "  ⚠ WARNING: Test results may contain false positives!" COLOR_RESET);
+        Serial.println(COLOR_YELLOW "  Continuing test suite for diagnostic purposes..." COLOR_RESET);
         Serial.println();
         return false;
     }
-
-    Serial.println(COLOR_GREEN "  ✓ PASS - Loopback TX/RX with data integrity verified" COLOR_RESET);
-
-    // All tests passed!
-    Serial.println();
-    Serial.println(COLOR_BOLD COLOR_GREEN "═══════════════════════════════════════════════════════════════" COLOR_RESET);
-    Serial.println(COLOR_BOLD COLOR_GREEN "  ✓ HARDWARE CONNECTIVITY VERIFIED ✓" COLOR_RESET);
-    Serial.println(COLOR_BOLD COLOR_GREEN "═══════════════════════════════════════════════════════════════" COLOR_RESET);
-    Serial.println();
-    Serial.println(COLOR_GREEN "  All hardware verification tests passed!" COLOR_RESET);
-    Serial.println(COLOR_GREEN "  MCP2515 is connected and functioning correctly." COLOR_RESET);
-    Serial.println();
-
-    return true;
 }
 
 /**
@@ -3057,8 +3051,22 @@ void printFinalStatistics() {
 
     Serial.println();
 
+    // Hardware connectivity status
+    Serial.println(COLOR_BOLD "Hardware Status:" COLOR_RESET);
+    if (hardware_detected) {
+        Serial.println(COLOR_GREEN "  ✓ MCP2515 hardware detected and verified" COLOR_RESET);
+    } else {
+        Serial.println(COLOR_RED "  ✗ MCP2515 hardware NOT detected!" COLOR_RESET);
+        Serial.println(COLOR_YELLOW "  ⚠ Test results may contain FALSE POSITIVES!" COLOR_RESET);
+        Serial.println(COLOR_YELLOW "  ⚠ Connect hardware and retest for accurate results" COLOR_RESET);
+    }
+
+    Serial.println();
+
     // Overall result
-    if (test_stats.failed_tests == 0) {
+    if (!hardware_detected) {
+        Serial.println(COLOR_BOLD COLOR_RED "  ⚠ INVALID RESULTS - NO HARDWARE DETECTED ⚠" COLOR_RESET);
+    } else if (test_stats.failed_tests == 0) {
         Serial.println(COLOR_BOLD COLOR_GREEN "  ★★★ ALL TESTS PASSED ★★★" COLOR_RESET);
     } else {
         Serial.println(COLOR_BOLD COLOR_RED "  ⚠ SOME TESTS FAILED ⚠" COLOR_RESET);
