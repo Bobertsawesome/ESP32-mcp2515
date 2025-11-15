@@ -50,7 +50,7 @@
 // ============================================================================
 
 // **NEW** Multi-Speed Test Mode - Set to true to run tests at all major CAN speeds
-#define ENABLE_MULTI_SPEED_TEST   true      // Set to true for comprehensive speed sweep
+#define ENABLE_MULTI_SPEED_TEST   false      // Set to true for comprehensive speed sweep
 
 // Multi-Speed Configuration (only used if ENABLE_MULTI_SPEED_TEST is true)
 const CAN_SPEED MULTI_SPEED_TEST_SPEEDS[] = {
@@ -2166,14 +2166,16 @@ bool waitForTXBuffer(uint32_t timeout_ms) {
 }
 
 /**
- * Smart delay for mode transitions - polls CANSTAT to verify mode change
+ * Smart delay for mode transitions - polls status to verify mode change
  * Returns true if mode changed successfully, false if timeout
+ * Note: Uses getStatus() which reads CANSTAT register internally
  */
 bool waitForModeChange(uint8_t target_mode, uint32_t timeout_ms) {
     uint32_t start = millis();
     while ((millis() - start) < timeout_ms) {
-        uint8_t canstat = mcp2515.readRegister(MCP2515::MCP_CANSTAT);
-        uint8_t current_mode = (canstat >> 5) & 0x07;
+        uint8_t status = mcp2515.getStatus();
+        // CANSTAT mode is in bits 7:5 of status byte
+        uint8_t current_mode = (status >> 5) & 0x07;
         if (current_mode == target_mode) {
             return true;
         }
@@ -2196,7 +2198,7 @@ bool waitForModeChange(uint8_t target_mode, uint32_t timeout_ms) {
 /**
  * Master: Wait for slave to signal ready
  */
-bool waitForSlaveReady(uint32_t timeout_ms = 5000) {
+bool waitForSlaveReady(uint32_t timeout_ms) {
     if (TEST_MODE != TEST_MODE_TWO_DEVICE || DEVICE_ROLE != ROLE_MASTER) {
         return true;  // Not applicable
     }
@@ -2249,7 +2251,7 @@ void sendStartSignal(uint8_t test_id) {
 /**
  * Slave: Wait for start signal from master
  */
-bool waitForStartSignal(uint8_t* test_id, uint32_t timeout_ms = 10000) {
+bool waitForStartSignal(uint8_t* test_id, uint32_t timeout_ms) {
     if (TEST_MODE != TEST_MODE_TWO_DEVICE || DEVICE_ROLE != ROLE_SLAVE) {
         return true;
     }
