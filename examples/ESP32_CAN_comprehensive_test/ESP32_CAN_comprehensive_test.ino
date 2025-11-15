@@ -91,6 +91,24 @@ typedef enum {
 #define SERIAL_BAUD     115200
 
 // ============================================================================
+// MCP2515 CANSTAT OPMOD CONSTANTS
+// ============================================================================
+
+// MCP2515 CANSTAT OPMOD values (bits 7:5 of CANSTAT register)
+#define CANSTAT_OPMOD_NORMAL      0x00
+#define CANSTAT_OPMOD_SLEEP       0x01
+#define CANSTAT_OPMOD_LOOPBACK    0x02
+#define CANSTAT_OPMOD_LISTENONLY  0x03
+#define CANSTAT_OPMOD_CONFIG      0x04
+
+// Special CAN IDs for master/slave synchronization in two-device mode
+#define SYNC_ID_READY        0x7F0  // Slave signals ready
+#define SYNC_ID_START_TEST   0x7F1  // Master signals test start
+#define SYNC_ID_TEST_FRAME   0x7F2  // Test frame from slave
+#define SYNC_ID_ACK          0x7F3  // Acknowledgment
+#define SYNC_ID_COMPLETE     0x7F4  // Test complete
+
+// ============================================================================
 // ANSI COLOR CODES FOR TERMINAL OUTPUT
 // ============================================================================
 
@@ -2275,20 +2293,6 @@ bool waitForModeChange(uint8_t target_mode, uint32_t timeout_ms) {
 // ============================================================================
 // TWO-DEVICE MODE COORDINATION PROTOCOL
 // ============================================================================
-
-// Special CAN IDs for master/slave synchronization
-#define SYNC_ID_READY        0x7F0  // Slave signals ready
-#define SYNC_ID_START_TEST   0x7F1  // Master signals test start
-#define SYNC_ID_TEST_FRAME   0x7F2  // Test frame from slave
-#define SYNC_ID_ACK          0x7F3  // Acknowledgment
-#define SYNC_ID_COMPLETE     0x7F4  // Test complete
-
-// MCP2515 CANSTAT OPMOD values (bits 7:5 of CANSTAT register)
-#define CANSTAT_OPMOD_NORMAL      0x00
-#define CANSTAT_OPMOD_SLEEP       0x01
-#define CANSTAT_OPMOD_LOOPBACK    0x02
-#define CANSTAT_OPMOD_LISTENONLY  0x03
-#define CANSTAT_OPMOD_CONFIG      0x04
 
 /**
  * Master: Wait for slave to signal ready
