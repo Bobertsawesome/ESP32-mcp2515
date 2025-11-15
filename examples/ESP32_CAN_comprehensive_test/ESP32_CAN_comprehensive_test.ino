@@ -50,7 +50,7 @@
 // ============================================================================
 
 // **NEW** Multi-Speed Test Mode - Set to true to run tests at all major CAN speeds
-#define ENABLE_MULTI_SPEED_TEST   true      // Set to true for comprehensive speed sweep
+#define ENABLE_MULTI_SPEED_TEST   false      // Set to true for comprehensive speed sweep
 
 // Multi-Speed Configuration (only used if ENABLE_MULTI_SPEED_TEST is true)
 const CAN_SPEED MULTI_SPEED_TEST_SPEEDS[] = {
@@ -705,6 +705,8 @@ void testOperatingModes() {
 void testBitrateConfiguration() {
     printSectionHeader("BITRATE CONFIGURATION TESTS");
 
+    MCP2515::ERROR err;  // Declare at function scope
+
     // Test various bitrates
     const CAN_SPEED speeds[] = {
         CAN_5KBPS, CAN_10KBPS, CAN_20KBPS, CAN_50KBPS,
@@ -714,7 +716,7 @@ void testBitrateConfiguration() {
     for (uint8_t i = 0; i < sizeof(speeds)/sizeof(speeds[0]); i++) {
         printTestHeader(getSpeedName(speeds[i]));
 
-        MCP2515::ERROR err = mcp2515.setConfigMode();
+        err = mcp2515.setConfigMode();
         delay(50); // **FIX:** Wait for config mode
 
         if (err == MCP2515::ERROR_OK) {
