@@ -728,11 +728,10 @@ void testBitrateConfiguration() {
         printTestHeader(getSpeedName(speeds[i]));
 
         err = mcp2515.setConfigMode();
-        delay(50); // **FIX:** Wait for config mode
-
-        if (err == MCP2515::ERROR_OK) {
+        // **OPTIMIZED:** Poll for config mode instead of fixed 50ms delay
+        if (err == MCP2515::ERROR_OK && waitForModeChange(CANSTAT_OPMOD_CONFIG, 100)) {
             err = mcp2515.setBitrate(speeds[i], CONFIG_CAN_CLOCK);
-            delay(50); // **FIX:** Wait for bitrate change
+            delay(20);  // **OPTIMIZED:** Reduced from 50ms (bitrate change is fast)
         }
 
         printTestResult(err == MCP2515::ERROR_OK, "Bitrate configured");
@@ -741,10 +740,9 @@ void testBitrateConfiguration() {
     // Test single-parameter setBitrate (uses default clock)
     printTestHeader("Set Bitrate (Single Parameter - Default Clock)");
     err = mcp2515.setConfigMode();
-    delay(50);
-    if (err == MCP2515::ERROR_OK) {
+    if (err == MCP2515::ERROR_OK && waitForModeChange(CANSTAT_OPMOD_CONFIG, 100)) {  // **OPTIMIZED:** Poll
         err = mcp2515.setBitrate(CAN_125KBPS);  // Uses default clock (should be 16MHz for most boards)
-        delay(50);
+        delay(20);  // **OPTIMIZED:** Reduced from 50ms
         printTestResult(err == MCP2515::ERROR_OK, "Bitrate set with default clock");
     } else {
         printTestResult(false, "Failed to enter config mode");
@@ -752,16 +750,18 @@ void testBitrateConfiguration() {
 
     // Restore original bitrate and mode
     mcp2515.setConfigMode();
-    delay(50);
-    mcp2515.setBitrate(current_test_speed, CONFIG_CAN_CLOCK);
-    delay(50);
+    if (waitForModeChange(CANSTAT_OPMOD_CONFIG, 100)) {  // **OPTIMIZED:** Poll
+        mcp2515.setBitrate(current_test_speed, CONFIG_CAN_CLOCK);
+        delay(20);  // **OPTIMIZED:** Reduced from 50ms
+    }
 
     if (TEST_MODE == TEST_MODE_LOOPBACK) {
         mcp2515.setLoopbackMode();
+        waitForModeChange(CANSTAT_OPMOD_LOOPBACK, 100);  // **OPTIMIZED:** Poll
     } else {
         mcp2515.setNormalMode();
+        waitForModeChange(CANSTAT_OPMOD_NORMAL, 100);  // **OPTIMIZED:** Poll
     }
-    delay(100);
 }
 
 // ============================================================================
@@ -1250,11 +1250,7 @@ void testFrameReception() {
 void testRXB1Buffer() {
     printSectionHeader("RXB1 BUFFER TESTING");
 
-    if (TEST_MODE != TEST_MODE_LOOPBACK) {
-        safe_println(COLOR_YELLOW "RXB1 test requires loopback mode - skipping" COLOR_RESET);
-        test_stats.skipped_tests += 2;
-        return;
-    }
+    // **ENHANCED:** Now works in BOTH loopback and two-device modes
 
     struct can_frame tx_frame, rx_frame;
     MCP2515::ERROR err;
@@ -1264,20 +1260,60 @@ void testRXB1Buffer() {
         mcp2515.readMessage(&rx_frame);
     }
 
+    // TWO_DEVICE MODE: Slave sends test frames, Master receives
+    if (TEST_MODE == TEST_MODE_TWO_DEVICE && DEVICE_ROLE == ROLE_SLAVE) {
+        safe_println(COLOR_YELLOW "Slave: Sending RXB1 test frames for master..." COLOR_RESET);
+
+        // Wait for master's start signal
+        uint8_t test_id = 0;
+        if (!waitForStartSignal(&test_id, 10000)) {
+            safe_println(COLOR_RED "Slave: Timeout waiting for master start signal" COLOR_RESET);
+            return;
+        }
+
+        // Send two frames for RXB0/RXB1 testing
+        tx_frame.can_id = 0x301;
+        tx_frame.can_dlc = 1;
+        tx_frame.data[0] = 0x11;
+        mcp2515.sendMessage(&tx_frame);
+        delay(50);
+
+        tx_frame.can_id = 0x302;
+        tx_frame.can_dlc = 1;
+        tx_frame.data[0] = 0x22;
+        mcp2515.sendMessage(&tx_frame);
+        delay(100);
+
+        sendCompleteSignal();
+        return;
+    }
+
+    // MASTER or LOOPBACK MODE: Run RXB1 buffer tests
+    if (TEST_MODE == TEST_MODE_TWO_DEVICE) {
+        // Signal slave to start sending
+        sendStartSignal(0x05);  // Test ID for RXB1 test
+        delay(100);
+    }
+
     // Send two frames - first goes to RXB0, second may go to RXB1 if rollover enabled
     printTestHeader("Send Multiple Frames for RXB0/RXB1");
 
-    tx_frame.can_id = 0x301;
-    tx_frame.can_dlc = 1;
-    tx_frame.data[0] = 0x11;
-    mcp2515.sendMessage(&tx_frame);
-    delay(50);
+    if (TEST_MODE == TEST_MODE_LOOPBACK) {
+        tx_frame.can_id = 0x301;
+        tx_frame.can_dlc = 1;
+        tx_frame.data[0] = 0x11;
+        mcp2515.sendMessage(&tx_frame);
+        delay(20);  // **OPTIMIZED:** Reduced from 50ms
 
-    tx_frame.can_id = 0x302;
-    tx_frame.can_dlc = 1;
-    tx_frame.data[0] = 0x22;
-    mcp2515.sendMessage(&tx_frame);
-    delay(100);
+        tx_frame.can_id = 0x302;
+        tx_frame.can_dlc = 1;
+        tx_frame.data[0] = 0x22;
+        mcp2515.sendMessage(&tx_frame);
+    }
+
+    // **OPTIMIZED:** Use polling instead of fixed delay
+    waitForMessage(150);  // Wait for first frame
+    waitForMessage(150);  // Wait for second frame
 
     printTestHeader("Read from RXB1 Explicitly");
     err = mcp2515.readMessage(MCP2515::RXB1, &rx_frame);
@@ -1303,7 +1339,7 @@ void testRXB1Buffer() {
     printTestResult(err == MCP2515::ERROR_OK || err == MCP2515::ERROR_NOMSG,
                    "RXB0 read completed");
 
-    delay(100);
+    delay(20);  // **OPTIMIZED:** Reduced from 100ms
 }
 
 // ============================================================================
@@ -1570,10 +1606,60 @@ void testStatistics() {
                    COLOR_YELLOW, frames_sent_successfully, tx_delta, COLOR_RESET);
     }
 
-    // Test 3: In loopback mode, RX counter should also increment
-    if (TEST_MODE == TEST_MODE_LOOPBACK) {
-        printTestHeader("RX Frame Counter (Loopback Mode)");
+    // Test 3: RX counter test - works in BOTH loopback and two-device modes
+    printTestHeader("RX Frame Counter Test");
 
+    // TWO_DEVICE MODE: Coordinate with slave to receive frames
+    if (TEST_MODE == TEST_MODE_TWO_DEVICE) {
+        if (DEVICE_ROLE == ROLE_SLAVE) {
+            // Slave: Send frames for master to receive
+            uint8_t test_id = 0;
+            if (waitForStartSignal(&test_id, 10000)) {
+                for (int i = 0; i < 10; i++) {
+                    struct can_frame frame;
+                    frame.can_id = 0x410 + i;
+                    frame.can_dlc = 2;
+                    frame.data[0] = 0xA0 + i;
+                    frame.data[1] = i;
+                    mcp2515.sendMessage(&frame);
+                    delay(20);
+                }
+                sendCompleteSignal();
+            }
+            return;  // Slave done
+        } else {
+            // Master: Receive frames from slave
+            sendStartSignal(0x06);  // Signal slave to send
+            delay(50);
+
+            mcp2515_statistics_t stats_rx_before;
+            mcp2515.getStatistics(&stats_rx_before);
+
+            // Receive frames from slave
+            uint32_t frames_received = 0;
+            for (int i = 0; i < 10; i++) {
+                if (waitForMessage(500)) {
+                    struct can_frame frame;
+                    mcp2515.readMessage(&frame);
+                    frames_received++;
+                }
+            }
+
+            delay(50);
+            mcp2515_statistics_t stats_rx_after;
+            mcp2515.getStatistics(&stats_rx_after);
+
+            uint32_t rx_delta = stats_rx_after.rx_frames - stats_rx_before.rx_frames;
+            bool rx_correct = (rx_delta == frames_received && frames_received > 0);
+
+            printTestResult(rx_correct, "RX counter matches frames received (two-device)");
+
+            if (VERBOSE_OUTPUT) {
+                safe_printf("  Frames received: %lu, RX delta: %lu\n", frames_received, rx_delta);
+            }
+        }
+    } else {
+        // LOOPBACK MODE: Frames loop back to RX
         uint32_t rx_delta = stats_after.rx_frames - stats_before.rx_frames;
 
         // In loopback, frames loop back to RX
@@ -1930,7 +2016,7 @@ void testStateTransitionErrors() {
     // Test 1: Try to send in CONFIG mode (should fail)
     printTestHeader("Send Frame in CONFIG Mode");
     mcp2515.setConfigMode();
-    delay(50);
+    waitForModeChange(CANSTAT_OPMOD_CONFIG, 100);  // **OPTIMIZED:** Poll instead of delay(50)
 
     frame.can_id = 0x700;
     frame.can_dlc = 1;
@@ -1948,7 +2034,7 @@ void testStateTransitionErrors() {
     // Test 2: Try to change bitrate in NORMAL mode (may require config mode)
     printTestHeader("Change Bitrate in NORMAL Mode");
     mcp2515.setNormalMode();
-    delay(50);
+    waitForModeChange(CANSTAT_OPMOD_NORMAL, 100);  // **OPTIMIZED:** Poll instead of delay(50)
 
     err = mcp2515.setBitrate(CAN_500KBPS, CONFIG_CAN_CLOCK);
 
@@ -1961,18 +2047,20 @@ void testStateTransitionErrors() {
 
     // Restore to known state
     mcp2515.setConfigMode();
-    delay(20);
-    mcp2515.setBitrate(current_test_speed, CONFIG_CAN_CLOCK);
-    delay(20);
+    if (waitForModeChange(CANSTAT_OPMOD_CONFIG, 100)) {  // **OPTIMIZED:** Poll instead of delay(20)
+        mcp2515.setBitrate(current_test_speed, CONFIG_CAN_CLOCK);
+        delay(20);  // Wait for bitrate to apply
+    }
 
     if (TEST_MODE == TEST_MODE_LOOPBACK) {
         mcp2515.setLoopbackMode();
+        waitForModeChange(CANSTAT_OPMOD_LOOPBACK, 100);  // **OPTIMIZED:** Poll
     } else {
         mcp2515.setNormalMode();
+        waitForModeChange(CANSTAT_OPMOD_NORMAL, 100);  // **OPTIMIZED:** Poll
     }
-    delay(50);
 
-    delay(100);
+    delay(20);  // **OPTIMIZED:** Reduced from 100ms
 }
 
 // ============================================================================
@@ -2194,6 +2282,13 @@ bool waitForModeChange(uint8_t target_mode, uint32_t timeout_ms) {
 #define SYNC_ID_TEST_FRAME   0x7F2  // Test frame from slave
 #define SYNC_ID_ACK          0x7F3  // Acknowledgment
 #define SYNC_ID_COMPLETE     0x7F4  // Test complete
+
+// MCP2515 CANSTAT OPMOD values (bits 7:5 of CANSTAT register)
+#define CANSTAT_OPMOD_NORMAL      0x00
+#define CANSTAT_OPMOD_SLEEP       0x01
+#define CANSTAT_OPMOD_LOOPBACK    0x02
+#define CANSTAT_OPMOD_LISTENONLY  0x03
+#define CANSTAT_OPMOD_CONFIG      0x04
 
 /**
  * Master: Wait for slave to signal ready
