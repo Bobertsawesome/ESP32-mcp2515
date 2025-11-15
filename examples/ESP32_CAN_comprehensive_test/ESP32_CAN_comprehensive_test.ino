@@ -266,6 +266,11 @@ void clearRXBuffer();
 // **CRITICAL:** Hardware connectivity detection
 bool verifyHardwareConnected();
 
+// **VALIDATION:** Hardware response verification helpers
+bool verifyTXCompleted(MCP2515::TXBn buffer, uint32_t timeout_ms = 100);
+bool verifyRegisterValue(uint8_t reg_addr, uint8_t expected_value);
+bool isValidCANFrame(const struct can_frame* frame);
+
 // **ENHANCED:** Robust bidirectional handshake protocol for two-device mode
 bool waitForSlaveReadyAtStartup(uint32_t timeout_ms = 30000);
 void signalSlaveReadyContinuously();
@@ -770,8 +775,18 @@ void testOperatingModes() {
         uint8_t opmod = (canstat >> 5) & 0x07;
         bool mode_correct = (opmod == modes[i].expected_opmod);
 
-        printTestResult(err == MCP2515::ERROR_OK && mode_correct,
-                       "Mode set and verified via CANSTAT");
+        // **FIX:** Without hardware, CANSTAT reads 0x00 which accidentally matches NORMAL mode
+        // This creates a false positive for NORMAL mode test
+        bool test_ok = err == MCP2515::ERROR_OK && mode_correct;
+        if (test_ok && !hardware_detected) {
+            // Even if mode "appears" correct, can't verify without hardware
+            test_ok = false;
+        }
+
+        printTestResult(test_ok,
+                       test_ok ? "Mode set and verified via CANSTAT" :
+                       (!hardware_detected ? "Cannot verify without hardware" :
+                        "Mode set and verified via CANSTAT"));
 
         if (VERBOSE_OUTPUT && err == MCP2515::ERROR_OK) {
             safe_printf("  CANSTAT: 0x%02X, OPMOD: 0x%02X (expected: 0x%02X) %s\n",
@@ -779,7 +794,11 @@ void testOperatingModes() {
                        mode_correct ? COLOR_GREEN "✓" COLOR_RESET : COLOR_RED "✗" COLOR_RESET);
         }
         #else
-        printTestResult(err == MCP2515::ERROR_OK, "Mode set successfully");
+        bool test_ok = err == MCP2515::ERROR_OK;
+        if (test_ok && !hardware_detected) {
+            test_ok = false;
+        }
+        printTestResult(test_ok, test_ok ? "Mode set successfully" : "Cannot verify without hardware");
         #endif
 
         // Some modes may timeout or have conditions that prevent entry
@@ -1126,7 +1145,14 @@ void testFrameTransmission() {
         tx_frame.data[i] = i;
     }
     MCP2515::ERROR err = mcp2515.sendMessage(&tx_frame);
-    printTestResult(err == MCP2515::ERROR_OK, "Standard frame sent");
+    // **FIX:** Verify transmission actually completed (not just API success)
+    // Note: Without hardware, sendMessage succeeds but TX never completes
+    bool tx_ok = (err == MCP2515::ERROR_OK);
+    if (tx_ok && hardware_detected) {
+        // Verify at least one buffer completed (TXB0 used by default)
+        tx_ok = verifyTXCompleted(MCP2515::TXB0, 100);
+    }
+    printTestResult(tx_ok, "Standard frame sent and transmitted");
     if (VERBOSE_OUTPUT) printFrame(&tx_frame, true);
     delay(50); // **FIX:** Allow transmission to complete
 
@@ -1138,7 +1164,11 @@ void testFrameTransmission() {
         tx_frame.data[i] = 0xFF - i;
     }
     err = mcp2515.sendMessage(&tx_frame);
-    printTestResult(err == MCP2515::ERROR_OK, "Extended frame sent");
+    tx_ok = (err == MCP2515::ERROR_OK);
+    if (tx_ok && hardware_detected) {
+        tx_ok = verifyTXCompleted(MCP2515::TXB0, 100);
+    }
+    printTestResult(tx_ok, "Extended frame sent and transmitted");
     if (VERBOSE_OUTPUT) printFrame(&tx_frame, true);
     delay(50);
 
@@ -1147,7 +1177,11 @@ void testFrameTransmission() {
     tx_frame.can_id = 0x456 | CAN_RTR_FLAG;
     tx_frame.can_dlc = 4;
     err = mcp2515.sendMessage(&tx_frame);
-    printTestResult(err == MCP2515::ERROR_OK, "Standard RTR frame sent");
+    tx_ok = (err == MCP2515::ERROR_OK);
+    if (tx_ok && hardware_detected) {
+        tx_ok = verifyTXCompleted(MCP2515::TXB0, 100);
+    }
+    printTestResult(tx_ok, "Standard RTR frame sent and transmitted");
     if (VERBOSE_OUTPUT) printFrame(&tx_frame, true);
     delay(50);
 
@@ -1156,7 +1190,11 @@ void testFrameTransmission() {
     tx_frame.can_id = 0x87654321 | CAN_EFF_FLAG | CAN_RTR_FLAG;
     tx_frame.can_dlc = 6;
     err = mcp2515.sendMessage(&tx_frame);
-    printTestResult(err == MCP2515::ERROR_OK, "Extended RTR frame sent");
+    tx_ok = (err == MCP2515::ERROR_OK);
+    if (tx_ok && hardware_detected) {
+        tx_ok = verifyTXCompleted(MCP2515::TXB0, 100);
+    }
+    printTestResult(tx_ok, "Extended RTR frame sent and transmitted");
     if (VERBOSE_OUTPUT) printFrame(&tx_frame, true);
     delay(50);
 
@@ -1172,7 +1210,11 @@ void testFrameTransmission() {
             tx_frame.data[i] = dlc * 10 + i;
         }
         err = mcp2515.sendMessage(&tx_frame);
-        printTestResult(err == MCP2515::ERROR_OK, "Frame sent");
+        tx_ok = (err == MCP2515::ERROR_OK);
+        if (tx_ok && hardware_detected) {
+            tx_ok = verifyTXCompleted(MCP2515::TXB0, 100);
+        }
+        printTestResult(tx_ok, "Frame sent and transmitted");
         delay(20);
     }
 
@@ -1181,19 +1223,31 @@ void testFrameTransmission() {
     tx_frame.can_id = 0x200;
     tx_frame.can_dlc = 4;
     err = mcp2515.sendMessage(MCP2515::TXB0, &tx_frame);
-    printTestResult(err == MCP2515::ERROR_OK, "TXB0 transmission");
+    tx_ok = (err == MCP2515::ERROR_OK);
+    if (tx_ok && hardware_detected) {
+        tx_ok = verifyTXCompleted(MCP2515::TXB0, 100);
+    }
+    printTestResult(tx_ok, "TXB0 transmission completed");
     delay(20);
 
     printTestHeader("Send to TX Buffer 1");
     tx_frame.can_id = 0x201;
     err = mcp2515.sendMessage(MCP2515::TXB1, &tx_frame);
-    printTestResult(err == MCP2515::ERROR_OK, "TXB1 transmission");
+    tx_ok = (err == MCP2515::ERROR_OK);
+    if (tx_ok && hardware_detected) {
+        tx_ok = verifyTXCompleted(MCP2515::TXB1, 100);
+    }
+    printTestResult(tx_ok, "TXB1 transmission completed");
     delay(20);
 
     printTestHeader("Send to TX Buffer 2");
     tx_frame.can_id = 0x202;
     err = mcp2515.sendMessage(MCP2515::TXB2, &tx_frame);
-    printTestResult(err == MCP2515::ERROR_OK, "TXB2 transmission");
+    tx_ok = (err == MCP2515::ERROR_OK);
+    if (tx_ok && hardware_detected) {
+        tx_ok = verifyTXCompleted(MCP2515::TXB2, 100);
+    }
+    printTestResult(tx_ok, "TXB2 transmission completed");
     delay(20);
 
     delay(100);
@@ -1421,26 +1475,46 @@ void testRXB1Buffer() {
     printTestHeader("Read from RXB1 Explicitly");
     err = mcp2515.readMessage(MCP2515::RXB1, &rx_frame);
 
+    // **FIX:** Validate that data read is actually valid (not garbage from unconnected hardware)
+    bool rxb1_ok = false;
+    const char* rxb1_msg = "RXB1 read failed";
+
     if (err == MCP2515::ERROR_OK) {
-        printTestResult(true, "RXB1 read successful");
+        // Check if frame data is valid (not garbage)
+        if (hardware_detected && isValidCANFrame(&rx_frame)) {
+            rxb1_ok = true;
+            rxb1_msg = "RXB1 read successful with valid data";
+        } else if (!hardware_detected) {
+            rxb1_ok = false;
+            rxb1_msg = "Cannot verify RXB1 data without hardware";
+        } else {
+            rxb1_ok = false;
+            rxb1_msg = "RXB1 read garbage data (likely no hardware)";
+        }
         if (VERBOSE_OUTPUT) {
             safe_printf("  RXB1 ID: 0x%03X, Data: 0x%02X\n",
                        rx_frame.can_id & CAN_SFF_MASK, rx_frame.data[0]);
         }
     } else if (err == MCP2515::ERROR_NOMSG) {
-        printTestResult(false, "RXB1 empty (rollover may not be enabled)");
-        if (VERBOSE_OUTPUT) {
+        rxb1_ok = hardware_detected;  // Expected if rollover not configured, but need hardware
+        rxb1_msg = hardware_detected ? "RXB1 empty (rollover may not be enabled)" :
+                                       "Cannot verify without hardware";
+        if (VERBOSE_OUTPUT && hardware_detected) {
             safe_println("  " COLOR_YELLOW "Note: RXB0 rollover to RXB1 may not be configured" COLOR_RESET);
         }
-    } else {
-        printTestResult(false, "RXB1 read failed");
     }
+
+    printTestResult(rxb1_ok, rxb1_msg);
 
     // Test reading from RXB0 to compare
     printTestHeader("Read from RXB0 for Comparison");
     err = mcp2515.readMessage(MCP2515::RXB0, &rx_frame);
-    printTestResult(err == MCP2515::ERROR_OK || err == MCP2515::ERROR_NOMSG,
-                   "RXB0 read completed");
+    bool rxb0_ok = (err == MCP2515::ERROR_OK || err == MCP2515::ERROR_NOMSG);
+    if (err == MCP2515::ERROR_OK && !hardware_detected) {
+        rxb0_ok = false;  // Reading succeeded but can't verify without hardware
+    }
+    printTestResult(rxb0_ok,
+                   rxb0_ok ? "RXB0 read completed" : "Cannot verify without hardware");
 
     delay(20);  // **OPTIMIZED:** Reduced from 100ms
 
@@ -1602,7 +1676,10 @@ void testInterruptFunctions() {
     // Test 1: Get interrupts
     printTestHeader("Get Interrupt Flags");
     uint8_t irq = mcp2515.getInterrupts();
-    printTestResult(true, "Interrupt flags read");
+    // **FIX:** Reading interrupt flags without hardware will return 0x00
+    // This looks like "no interrupts" but is actually just floating/default state
+    bool test_valid = hardware_detected || (irq != 0x00);  // Accept if hardware OR non-zero value
+    printTestResult(test_valid, test_valid ? "Interrupt flags read" : "Cannot verify without hardware");
     if (VERBOSE_OUTPUT) {
         safe_printf("  CANINTF = 0x%02X\n", irq);
         if (irq & MCP2515::CANINTF_RX0IF) safe_println("    - RX0 Interrupt");
@@ -1618,29 +1695,38 @@ void testInterruptFunctions() {
     // Test 2: Get interrupt mask
     printTestHeader("Get Interrupt Mask");
     uint8_t imask = mcp2515.getInterruptMask();
-    printTestResult(true, "Interrupt mask read");
+    test_valid = hardware_detected;  // Need hardware to verify mask configuration
+    printTestResult(test_valid, test_valid ? "Interrupt mask read" : "Cannot verify without hardware");
     if (VERBOSE_OUTPUT) safe_printf("  CANINTE = 0x%02X\n", imask);
 
     // Test 3: Clear all interrupts
     printTestHeader("Clear All Interrupts");
     mcp2515.clearInterrupts();
     uint8_t irq_after = mcp2515.getInterrupts();
-    printTestResult(irq_after == 0, "All interrupts cleared");
+    // **FIX:** Without hardware, will always read 0x00 before and after
+    test_valid = hardware_detected;
+    printTestResult(test_valid && (irq_after == 0),
+                   test_valid ? "All interrupts cleared" : "Cannot verify without hardware");
 
     // Test 4: Clear TX interrupts only
     printTestHeader("Clear TX Interrupts");
     mcp2515.clearTXInterrupts();
-    printTestResult(true, "TX interrupts cleared");
+    test_valid = hardware_detected;
+    printTestResult(test_valid, test_valid ? "TX interrupts cleared" : "Cannot verify without hardware");
 
     // Test 5: Enable/disable interrupt mode (ESP32-specific)
     #ifdef ESP32
     printTestHeader("Enable Interrupt Mode");
     MCP2515::ERROR err = mcp2515.setInterruptMode(true);
-    printTestResult(err == MCP2515::ERROR_OK, "Interrupt mode enabled");
+    test_valid = hardware_detected;  // API success doesn't mean hardware configured
+    printTestResult(test_valid && (err == MCP2515::ERROR_OK),
+                   test_valid ? "Interrupt mode enabled" : "Cannot verify without hardware");
 
     printTestHeader("Disable Interrupt Mode");
     err = mcp2515.setInterruptMode(false);
-    printTestResult(err == MCP2515::ERROR_OK, "Interrupt mode disabled");
+    test_valid = hardware_detected;
+    printTestResult(test_valid && (err == MCP2515::ERROR_OK),
+                   test_valid ? "Interrupt mode disabled" : "Cannot verify without hardware");
     #endif
 
     delay(100);
@@ -1973,38 +2059,51 @@ void testStressScenarios() {
         }
     }
 
+    // **FIX:** Validate stress test is meaningful (requires hardware)
+    bool stress_test_valid = hardware_detected;
+    if (!hardware_detected) {
+        safe_println(COLOR_YELLOW "  ⚠ Cannot validate stress test without hardware!" COLOR_RESET);
+        safe_println(COLOR_YELLOW "  → Frames sent to API but not actually transmitted" COLOR_RESET);
+    }
+
     // **FIX:** Realistic error threshold based on speed
     float acceptable_error_rate = (current_test_speed <= CAN_125KBPS) ? 50.0 : 10.0;
-    printTestResult(error_rate < acceptable_error_rate,
-                   (error_rate < acceptable_error_rate) ?
-                   "Acceptable error rate for this speed" :
-                   "High error rate detected");
+    bool rate_acceptable = (error_rate < acceptable_error_rate);
+
+    printTestResult(stress_test_valid && rate_acceptable,
+                   !stress_test_valid ? "Cannot validate without hardware" :
+                   (rate_acceptable ? "Acceptable error rate for this speed" :
+                                      "High error rate detected"));
 
     // RX Buffer Overflow Test (if in loopback)
     if (TEST_MODE == TEST_MODE_LOOPBACK) {
         printTestHeader("RX Buffer Overflow Test");
 
-        // Clear any existing overflow
-        mcp2515.clearRXnOVR();
-        delay(50);
+        if (!hardware_detected) {
+            printTestResult(false, "Cannot test overflow without hardware");
+        } else {
+            // Clear any existing overflow
+            mcp2515.clearRXnOVR();
+            delay(50);
 
-        // Send many frames rapidly without reading
-        for (int i = 0; i < 20; i++) {
-            stress_frame.can_id = 0x600 + i;
-            mcp2515.sendMessage(&stress_frame);
-            delayMicroseconds(50);  // Very rapid
+            // Send many frames rapidly without reading
+            for (int i = 0; i < 20; i++) {
+                stress_frame.can_id = 0x600 + i;
+                mcp2515.sendMessage(&stress_frame);
+                delayMicroseconds(50);  // Very rapid
+            }
+
+            delay(100);
+
+            uint8_t eflg = mcp2515.getErrorFlags();
+            bool overflow_detected = (eflg & (MCP2515::EFLG_RX0OVR | MCP2515::EFLG_RX1OVR));
+
+            safe_printf("  Overflow %s\n", overflow_detected ? "DETECTED" : "NOT DETECTED");
+            printTestResult(true, "Overflow test completed");
+
+            // Clear overflow for subsequent tests
+            mcp2515.clearRXnOVR();
         }
-
-        delay(100);
-
-        uint8_t eflg = mcp2515.getErrorFlags();
-        bool overflow_detected = (eflg & (MCP2515::EFLG_RX0OVR | MCP2515::EFLG_RX1OVR));
-
-        safe_printf("  Overflow %s\n", overflow_detected ? "DETECTED" : "NOT DETECTED");
-        printTestResult(true, "Overflow test completed");
-
-        // Clear overflow for subsequent tests
-        mcp2515.clearRXnOVR();
     }
 
     delay(100);
@@ -2032,7 +2131,39 @@ void testClockOutput() {
     for (uint8_t i = 0; i < sizeof(clkout_modes)/sizeof(clkout_modes[0]); i++) {
         printTestHeader(clkout_modes[i].name);
         MCP2515::ERROR err = mcp2515.setClkOut(clkout_modes[i].divisor);
-        printTestResult(err == MCP2515::ERROR_OK, "CLKOUT configured");
+
+        // **FIX:** Verify CLKOUT actually configured (not just API success)
+        bool config_ok = (err == MCP2515::ERROR_OK);
+        if (config_ok && hardware_detected) {
+            // CANCTRL register (0x0F) bits 2:0 control CLKPRE
+            // Bit 2 is CLKEN (0=disable, 1=enable)
+            uint8_t canctrl = mcp2515.readRegister(0x0F);
+            uint8_t clkpre_bits = canctrl & 0x03;  // Bits 1:0 = prescaler
+            bool clken_bit = canctrl & 0x04;        // Bit 2 = enable
+
+            // Verify configuration matches what was set
+            bool verified = false;
+            switch (clkout_modes[i].divisor) {
+                case CLKOUT_DISABLE:
+                    verified = !clken_bit;  // CLKEN should be 0
+                    break;
+                case CLKOUT_DIV1:
+                    verified = clken_bit && (clkpre_bits == 0x00);
+                    break;
+                case CLKOUT_DIV2:
+                    verified = clken_bit && (clkpre_bits == 0x01);
+                    break;
+                case CLKOUT_DIV4:
+                    verified = clken_bit && (clkpre_bits == 0x02);
+                    break;
+                case CLKOUT_DIV8:
+                    verified = clken_bit && (clkpre_bits == 0x03);
+                    break;
+            }
+            config_ok = verified;
+        }
+
+        printTestResult(config_ok, "CLKOUT configured and verified");
         delay(50);
     }
 
@@ -2051,13 +2182,17 @@ void testAdvancedFeatures() {
     printTestHeader("Read Message Queued (Non-blocking)");
     struct can_frame frame;
     MCP2515::ERROR err = mcp2515.readMessageQueued(&frame, 0);
+    // **FIX:** This test checks API returns valid error codes, but without hardware
+    // we can't verify the queue is actually functioning
     bool result = (err == MCP2515::ERROR_OK || err == MCP2515::ERROR_NOMSG || err == MCP2515::ERROR_TIMEOUT);
-    printTestResult(result, "Queued read tested");
+    result = result && hardware_detected;  // Need hardware to verify queue functionality
+    printTestResult(result, result ? "Queued read tested" : "Cannot verify without hardware");
 
     printTestHeader("Read Message Queued (With Timeout)");
     err = mcp2515.readMessageQueued(&frame, 100);
     result = (err == MCP2515::ERROR_OK || err == MCP2515::ERROR_NOMSG || err == MCP2515::ERROR_TIMEOUT);
-    printTestResult(result, "Queued read with timeout tested");
+    result = result && hardware_detected;
+    printTestResult(result, result ? "Queued read with timeout tested" : "Cannot verify without hardware");
     #endif
 
     delay(100);
@@ -2088,36 +2223,50 @@ void testAdvancedQueue() {
 
     // Test 2: Send message and verify queue count increments
     printTestHeader("Queue Count Increments");
-    uint32_t count_before = mcp2515.getRxQueueCount();
 
-    frame.can_id = 0x650;
-    frame.can_dlc = 2;
-    frame.data[0] = 0xAA;
-    frame.data[1] = 0xBB;
-    mcp2515.sendMessage(&frame);
-    delay(100);
+    if (!hardware_detected) {
+        printTestResult(false, "Cannot verify without hardware");
+    } else {
+        uint32_t count_before = mcp2515.getRxQueueCount();
 
-    uint32_t count_after = mcp2515.getRxQueueCount();
-    bool count_incremented = (count_after > count_before);
+        frame.can_id = 0x650;
+        frame.can_dlc = 2;
+        frame.data[0] = 0xAA;
+        frame.data[1] = 0xBB;
+        mcp2515.sendMessage(&frame);
 
-    printTestResult(count_incremented, "Queue count incremented after RX");
+        // **FIX:** Verify TX actually completed
+        bool tx_ok = verifyTXCompleted(MCP2515::TXB0, 100);
 
-    if (VERBOSE_OUTPUT) {
-        safe_printf("  Before: %lu, After: %lu\n", count_before, count_after);
+        delay(100);  // Wait for RX in loopback
+
+        uint32_t count_after = mcp2515.getRxQueueCount();
+        bool count_incremented = (count_after > count_before) && tx_ok;
+
+        printTestResult(count_incremented, "Queue count incremented after RX");
+
+        if (VERBOSE_OUTPUT) {
+            safe_printf("  Before: %lu, After: %lu\n", count_before, count_after);
+        }
     }
 
     // Test 3: Read with timeout and verify it works
     printTestHeader("Read from Queue with Timeout");
-    err = mcp2515.readMessageQueued(&rx_frame, 100);
-    bool read_ok = (err == MCP2515::ERROR_OK);
 
-    printTestResult(read_ok, "Queued read successful");
+    if (!hardware_detected) {
+        printTestResult(false, "Cannot verify without hardware");
+    } else {
+        err = mcp2515.readMessageQueued(&rx_frame, 100);
+        bool read_ok = (err == MCP2515::ERROR_OK);
 
-    if (read_ok) {
-        bool data_match = (rx_frame.can_id == 0x650 &&
-                          rx_frame.data[0] == 0xAA &&
-                          rx_frame.data[1] == 0xBB);
-        printTestResult(data_match, "Queued frame data matches sent frame");
+        if (read_ok) {
+            bool data_match = (rx_frame.can_id == 0x650 &&
+                              rx_frame.data[0] == 0xAA &&
+                              rx_frame.data[1] == 0xBB);
+            printTestResult(read_ok && data_match, "Queued read successful with valid data");
+        } else {
+            printTestResult(false, "Queued read failed");
+        }
     }
 
     #else
@@ -2203,21 +2352,30 @@ void testBoundaryConditions() {
     frame.can_id = 0x200;
     frame.can_dlc = 0;
     err = mcp2515.sendMessage(&frame);
-    printTestResult(err == MCP2515::ERROR_OK, "Zero-byte frame accepted");
+    // **FIX:** Verify transmission actually completed
+    bool test_ok = (err == MCP2515::ERROR_OK);
+    if (test_ok && hardware_detected) {
+        test_ok = verifyTXCompleted(MCP2515::TXB0, 100);
+    }
+    printTestResult(test_ok, test_ok ? "Zero-byte frame accepted" : "Cannot verify without hardware");
 
     // Test 2: Maximum DLC (8 bytes)
     printTestHeader("Maximum DLC (8 Bytes)");
     frame.can_dlc = 8;
     for (uint8_t i = 0; i < 8; i++) frame.data[i] = i;
     err = mcp2515.sendMessage(&frame);
-    printTestResult(err == MCP2515::ERROR_OK, "8-byte frame accepted");
+    test_ok = (err == MCP2515::ERROR_OK);
+    if (test_ok && hardware_detected) {
+        test_ok = verifyTXCompleted(MCP2515::TXB0, 100);
+    }
+    printTestResult(test_ok, test_ok ? "8-byte frame accepted" : "Cannot verify without hardware");
 
     // Test 3: DLC > 8 (should be rejected or clamped)
     printTestHeader("Invalid DLC > 8");
     frame.can_dlc = 15;
     err = mcp2515.sendMessage(&frame);
     // Library may accept but clamp DLC, or may reject
-    // Either behavior is acceptable
+    // Either behavior is acceptable - this is input validation, not TX test
     printTestResult(true, "Invalid DLC handled (accept with clamp or reject)");
     if (VERBOSE_OUTPUT) {
         safe_printf("  Result: %s\n", (err == MCP2515::ERROR_OK) ? "Accepted (clamped)" : "Rejected");
@@ -2229,7 +2387,11 @@ void testBoundaryConditions() {
     frame.can_dlc = 1;
     frame.data[0] = 0xAA;
     err = mcp2515.sendMessage(&frame);
-    printTestResult(err == MCP2515::ERROR_OK, "Max standard ID accepted");
+    test_ok = (err == MCP2515::ERROR_OK);
+    if (test_ok && hardware_detected) {
+        test_ok = verifyTXCompleted(MCP2515::TXB0, 100);
+    }
+    printTestResult(test_ok, test_ok ? "Max standard ID accepted" : "Cannot verify without hardware");
 
     // Test 5: Maximum extended CAN ID
     printTestHeader("Maximum Extended ID (0x1FFFFFFF)");
@@ -2237,7 +2399,11 @@ void testBoundaryConditions() {
     frame.can_dlc = 1;
     frame.data[0] = 0xBB;
     err = mcp2515.sendMessage(&frame);
-    printTestResult(err == MCP2515::ERROR_OK, "Max extended ID accepted");
+    test_ok = (err == MCP2515::ERROR_OK);
+    if (test_ok && hardware_detected) {
+        test_ok = verifyTXCompleted(MCP2515::TXB0, 100);
+    }
+    printTestResult(test_ok, test_ok ? "Max extended ID accepted" : "Cannot verify without hardware");
 
     // Test 6: Invalid ID beyond standard range without EFF flag
     printTestHeader("ID > 0x7FF Without EFF Flag");
@@ -2246,6 +2412,7 @@ void testBoundaryConditions() {
     frame.data[0] = 0xCC;
     err = mcp2515.sendMessage(&frame);
     // Library should either set EFF flag automatically or reject
+    // This is input validation test - either behavior is acceptable
     printTestResult(true, "Out-of-range ID handled");
     if (VERBOSE_OUTPUT) {
         safe_printf("  Result: %s\n", (err == MCP2515::ERROR_OK) ? "Accepted (may set EFF)" : "Rejected");
@@ -2395,6 +2562,105 @@ bool waitForModeChange(uint8_t target_mode, uint32_t timeout_ms) {
         delayMicroseconds(100);
     }
     return false;
+}
+
+// ============================================================================
+// HARDWARE VALIDATION HELPERS
+// ============================================================================
+
+/**
+ * Verify that a TX buffer actually completed transmission
+ * Without hardware, sendMessage() returns ERROR_OK but transmission never happens
+ * This function verifies by reading TX buffer control register
+ *
+ * Returns: true if transmission completed (TXREQ cleared, no errors), false otherwise
+ */
+bool verifyTXCompleted(MCP2515::TXBn buffer, uint32_t timeout_ms) {
+    // Skip verification if no hardware detected - will always fail
+    if (!hardware_detected) {
+        return false;
+    }
+
+    // Map buffer enum to control register address
+    uint8_t ctrl_reg;
+    switch (buffer) {
+        case MCP2515::TXB0: ctrl_reg = 0x30; break;  // TXB0CTRL
+        case MCP2515::TXB1: ctrl_reg = 0x40; break;  // TXB1CTRL
+        case MCP2515::TXB2: ctrl_reg = 0x50; break;  // TXB2CTRL
+        default: return false;
+    }
+
+    // Wait for TXREQ bit to clear (bit 3)
+    uint32_t start = millis();
+    while ((millis() - start) < timeout_ms) {
+        uint8_t ctrl = mcp2515.readRegister(ctrl_reg);
+
+        // Check if TXREQ cleared (transmission complete)
+        if (!(ctrl & 0x08)) {
+            // Check for error flags (bits 4-6: MLOA, ABTF, TXERR)
+            if (ctrl & 0x70) {
+                return false;  // Transmission had errors
+            }
+            return true;  // Transmission completed successfully
+        }
+
+        delayMicroseconds(100);  // Poll every 100µs
+    }
+
+    return false;  // Timeout - TXREQ never cleared
+}
+
+/**
+ * Verify a register contains the expected value
+ * Used to validate configuration actually took effect
+ *
+ * Returns: true if register matches expected value, false otherwise
+ */
+bool verifyRegisterValue(uint8_t reg_addr, uint8_t expected_value) {
+    // Skip verification if no hardware detected
+    if (!hardware_detected) {
+        return false;
+    }
+
+    uint8_t actual_value = mcp2515.readRegister(reg_addr);
+    return (actual_value == expected_value);
+}
+
+/**
+ * Check if a CAN frame contains valid data (not garbage from unconnected hardware)
+ * Detects patterns typical of reading from uninitialized/floating memory
+ *
+ * Returns: true if frame appears valid, false if likely garbage
+ */
+bool isValidCANFrame(const struct can_frame* frame) {
+    // Check DLC is valid
+    if (frame->can_dlc > 8) {
+        return false;
+    }
+
+    // Check CAN ID is reasonable (not all 1s or suspiciously low like 0x000 with data)
+    uint32_t id = frame->can_id & (CAN_EFF_MASK | CAN_SFF_MASK);
+
+    // All-ones pattern indicates floating bus
+    if (id == 0x1FFFFFFF || id == 0x7FF) {
+        return false;
+    }
+
+    // ID 0x000 with non-zero data is suspicious (common when reading garbage)
+    if (id == 0x000 && frame->can_dlc > 0) {
+        bool all_zero = true;
+        for (uint8_t i = 0; i < frame->can_dlc; i++) {
+            if (frame->data[i] != 0) {
+                all_zero = false;
+                break;
+            }
+        }
+        if (!all_zero) {
+            return false;  // Suspicious: ID 0 but has non-zero data
+        }
+    }
+
+    return true;  // Frame appears valid
 }
 
 // ============================================================================
