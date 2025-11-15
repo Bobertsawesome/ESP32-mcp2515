@@ -27,17 +27,19 @@
 
 #include <SPI.h>
 #include <mcp2515.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 // ============================================================================
 // HARDWARE CONFIGURATION - CUSTOMIZE FOR YOUR SETUP
 // ============================================================================
 
 // SPI Pin Configuration (adjust for your ESP32 board)
-#define SPI_MOSI_PIN    23    // Default ESP32 VSPI MOSI
-#define SPI_MISO_PIN    19    // Default ESP32 VSPI MISO
-#define SPI_SCK_PIN     18    // Default ESP32 VSPI SCK
-#define SPI_CS_PIN      5     // Chip Select pin
-#define SPI_INT_PIN     4     // Interrupt pin (set to -1 to disable interrupts)
+#define SPI_MOSI_PIN    11    // Default ESP32 VSPI MOSI
+#define SPI_MISO_PIN    13    // Default ESP32 VSPI MISO
+#define SPI_SCK_PIN     12    // Default ESP32 VSPI SCK
+#define SPI_CS_PIN      37     // Chip Select pin
+#define SPI_INT_PIN     36     // Interrupt pin (set to -1 to disable interrupts)
 
 // CAN Bus Configuration
 #define CONFIG_CAN_SPEED       CAN_125KBPS   // CAN bus speed (single-speed mode)
@@ -48,7 +50,7 @@
 // ============================================================================
 
 // **NEW** Multi-Speed Test Mode - Set to true to run tests at all major CAN speeds
-#define ENABLE_MULTI_SPEED_TEST   false      // Set to true for comprehensive speed sweep
+#define ENABLE_MULTI_SPEED_TEST   true      // Set to true for comprehensive speed sweep
 
 // Multi-Speed Configuration (only used if ENABLE_MULTI_SPEED_TEST is true)
 const CAN_SPEED MULTI_SPEED_TEST_SPEEDS[] = {
@@ -101,6 +103,88 @@ typedef enum {
 #define COLOR_CYAN      "\033[36m"
 #define COLOR_WHITE     "\033[37m"
 #define COLOR_BOLD      "\033[1m"
+
+// ============================================================================
+// THREAD-SAFE SERIAL OUTPUT
+// ============================================================================
+
+// Mutex for thread-safe Serial output (prevents interlaced/garbled text)
+SemaphoreHandle_t serial_mutex = NULL;
+#define SERIAL_MUTEX_TIMEOUT_MS  1000  // Maximum wait time for mutex
+
+// Thread-safe Serial print wrapper
+void safe_print(const char* str) {
+    if (serial_mutex && xSemaphoreTake(serial_mutex, pdMS_TO_TICKS(SERIAL_MUTEX_TIMEOUT_MS)) == pdTRUE) {
+        Serial.print(str);
+        xSemaphoreGive(serial_mutex);
+    } else {
+        Serial.print(str);  // Fallback if mutex not available
+    }
+}
+
+// Thread-safe Serial println wrapper
+void safe_println(const char* str = "") {
+    if (serial_mutex && xSemaphoreTake(serial_mutex, pdMS_TO_TICKS(SERIAL_MUTEX_TIMEOUT_MS)) == pdTRUE) {
+        Serial.println(str);
+        xSemaphoreGive(serial_mutex);
+    } else {
+        Serial.println(str);
+    }
+}
+
+// Thread-safe Serial printf wrapper
+void safe_printf(const char* format, ...) __attribute__((format(printf, 1, 2)));
+void safe_printf(const char* format, ...) {
+    char buffer[256];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    if (serial_mutex && xSemaphoreTake(serial_mutex, pdMS_TO_TICKS(SERIAL_MUTEX_TIMEOUT_MS)) == pdTRUE) {
+        Serial.print(buffer);
+        xSemaphoreGive(serial_mutex);
+    } else {
+        Serial.print(buffer);
+    }
+}
+
+// Thread-safe Serial print for String objects
+void safe_print(const String& str) {
+    safe_print(str.c_str());
+}
+
+// Thread-safe Serial println for String objects
+void safe_println(const String& str) {
+    safe_println(str.c_str());
+}
+
+// Atomic multi-line print (locks once for entire block)
+class SafeSerialBlock {
+public:
+    SafeSerialBlock() {
+        if (serial_mutex) {
+            locked = (xSemaphoreTake(serial_mutex, pdMS_TO_TICKS(SERIAL_MUTEX_TIMEOUT_MS)) == pdTRUE);
+        } else {
+            locked = false;
+        }
+    }
+
+    ~SafeSerialBlock() {
+        if (locked && serial_mutex) {
+            xSemaphoreGive(serial_mutex);
+        }
+    }
+
+    // Direct access to Serial for the block
+    HardwareSerial& get() { return Serial; }
+
+private:
+    bool locked;
+};
+
+// Macro for atomic multi-line prints
+#define SAFE_SERIAL_BLOCK() SafeSerialBlock _safe_serial_block; HardwareSerial& Serial = _safe_serial_block.get()
 
 // ============================================================================
 // TEST INFRASTRUCTURE
@@ -162,40 +246,50 @@ void setup() {
 
     delay(1000); // Allow serial to stabilize
 
-    Serial.println();
-    Serial.println(COLOR_BOLD COLOR_CYAN "╔════════════════════════════════════════════════════════════════╗" COLOR_RESET);
-    Serial.println(COLOR_BOLD COLOR_CYAN "║   ESP32 MCP2515 CAN LIBRARY COMPREHENSIVE TEST SUITE v2.0     ║" COLOR_RESET);
-    Serial.println(COLOR_BOLD COLOR_CYAN "╚════════════════════════════════════════════════════════════════╝" COLOR_RESET);
-    Serial.println();
-
-    // Print configuration
-    Serial.println(COLOR_BOLD "Configuration:" COLOR_RESET);
-    Serial.printf("  Test Mode:        %s\n", TEST_MODE == TEST_MODE_LOOPBACK ? "LOOPBACK (Self-Test)" : "TWO-DEVICE (Real CAN Bus)");
-    if (TEST_MODE == TEST_MODE_TWO_DEVICE) {
-        Serial.printf("  Device Role:      %s\n", DEVICE_ROLE == ROLE_MASTER ? "MASTER" : "SLAVE");
+    // Create mutex for thread-safe Serial output
+    serial_mutex = xSemaphoreCreateMutex();
+    if (serial_mutex == NULL) {
+        Serial.println("ERROR: Failed to create serial mutex!");
     }
-    Serial.printf("  SPI Pins:         MOSI=%d, MISO=%d, SCK=%d, CS=%d, INT=%d\n",
-                  SPI_MOSI_PIN, SPI_MISO_PIN, SPI_SCK_PIN, SPI_CS_PIN, SPI_INT_PIN);
 
-    if (ENABLE_MULTI_SPEED_TEST) {
-        Serial.println(COLOR_BOLD COLOR_YELLOW "  Multi-Speed Mode: ENABLED" COLOR_RESET);
-        Serial.print("  Testing Speeds:   ");
-        for (uint32_t i = 0; i < MULTI_SPEED_COUNT; i++) {
-            Serial.print(getSpeedName(MULTI_SPEED_TEST_SPEEDS[i]));
-            if (i < MULTI_SPEED_COUNT - 1) Serial.print(", ");
-        }
+    // Use atomic block for all startup messages
+    {
+        SAFE_SERIAL_BLOCK();
         Serial.println();
-    } else {
-        Serial.printf("  CAN Speed:        %s\n", getSpeedName(CONFIG_CAN_SPEED));
-    }
+        Serial.println(COLOR_BOLD COLOR_CYAN "╔════════════════════════════════════════════════════════════════╗" COLOR_RESET);
+        Serial.println(COLOR_BOLD COLOR_CYAN "║   ESP32 MCP2515 CAN LIBRARY COMPREHENSIVE TEST SUITE v2.0     ║" COLOR_RESET);
+        Serial.println(COLOR_BOLD COLOR_CYAN "╚════════════════════════════════════════════════════════════════╝" COLOR_RESET);
+        Serial.println();
 
-    Serial.printf("  CAN Clock:        %s\n", getClockName(CONFIG_CAN_CLOCK));
-    Serial.printf("  Interrupt Tests:  %s\n", ENABLE_INTERRUPT_TESTS ? "ENABLED" : "DISABLED");
-    Serial.printf("  Stress Tests:     %s\n", ENABLE_STRESS_TESTS ? "ENABLED" : "DISABLED");
-    Serial.printf("  Enhancements:     Data Integrity Fix=%s, Mode Transition Fix=%s\n",
-                  ENABLE_DATA_INTEGRITY_FIX ? "ON" : "OFF",
-                  ENABLE_MODE_TRANSITION_FIX ? "ON" : "OFF");
-    Serial.println();
+        // Print configuration
+        Serial.println(COLOR_BOLD "Configuration:" COLOR_RESET);
+        Serial.printf("  Test Mode:        %s\n", TEST_MODE == TEST_MODE_LOOPBACK ? "LOOPBACK (Self-Test)" : "TWO-DEVICE (Real CAN Bus)");
+        if (TEST_MODE == TEST_MODE_TWO_DEVICE) {
+            Serial.printf("  Device Role:      %s\n", DEVICE_ROLE == ROLE_MASTER ? "MASTER" : "SLAVE");
+        }
+        Serial.printf("  SPI Pins:         MOSI=%d, MISO=%d, SCK=%d, CS=%d, INT=%d\n",
+                      SPI_MOSI_PIN, SPI_MISO_PIN, SPI_SCK_PIN, SPI_CS_PIN, SPI_INT_PIN);
+
+        if (ENABLE_MULTI_SPEED_TEST) {
+            Serial.println(COLOR_BOLD COLOR_YELLOW "  Multi-Speed Mode: ENABLED" COLOR_RESET);
+            Serial.print("  Testing Speeds:   ");
+            for (uint32_t i = 0; i < MULTI_SPEED_COUNT; i++) {
+                Serial.print(getSpeedName(MULTI_SPEED_TEST_SPEEDS[i]));
+                if (i < MULTI_SPEED_COUNT - 1) Serial.print(", ");
+            }
+            Serial.println();
+        } else {
+            Serial.printf("  CAN Speed:        %s\n", getSpeedName(CONFIG_CAN_SPEED));
+        }
+
+        Serial.printf("  CAN Clock:        %s\n", getClockName(CONFIG_CAN_CLOCK));
+        Serial.printf("  Interrupt Tests:  %s\n", ENABLE_INTERRUPT_TESTS ? "ENABLED" : "DISABLED");
+        Serial.printf("  Stress Tests:     %s\n", ENABLE_STRESS_TESTS ? "ENABLED" : "DISABLED");
+        Serial.printf("  Enhancements:     Data Integrity Fix=%s, Mode Transition Fix=%s\n",
+                      ENABLE_DATA_INTEGRITY_FIX ? "ON" : "OFF",
+                      ENABLE_MODE_TRANSITION_FIX ? "ON" : "OFF");
+        Serial.println();
+    }
 
     delay(2000);
 
@@ -218,7 +312,7 @@ void setup() {
 void loop() {
     // Tests complete - show summary every 10 seconds
     delay(10000);
-    Serial.println(COLOR_YELLOW "\n--- Test suite completed. See results above. ---" COLOR_RESET);
+    safe_println(COLOR_YELLOW "\n--- Test suite completed. See results above. ---" COLOR_RESET);
 }
 
 // ============================================================================
@@ -226,6 +320,7 @@ void loop() {
 // ============================================================================
 
 void runMultiSpeedTests() {
+    SAFE_SERIAL_BLOCK();
     Serial.println(COLOR_BOLD COLOR_BLUE "╔════════════════════════════════════════════════════════════════╗" COLOR_RESET);
     Serial.println(COLOR_BOLD COLOR_BLUE "║  Starting Multi-Speed Comprehensive Test Suite                ║" COLOR_RESET);
     Serial.println(COLOR_BOLD COLOR_BLUE "╚════════════════════════════════════════════════════════════════╝" COLOR_RESET);
@@ -325,6 +420,7 @@ void runComprehensiveTestsAtSpeed(CAN_SPEED speed) {
 }
 
 void printMultiSpeedComparison() {
+    SAFE_SERIAL_BLOCK();
     Serial.println();
     Serial.println();
     Serial.println(COLOR_BOLD COLOR_CYAN "╔════════════════════════════════════════════════════════════════╗" COLOR_RESET);
@@ -419,6 +515,7 @@ void printMultiSpeedComparison() {
 // ============================================================================
 
 void runComprehensiveTests() {
+    SAFE_SERIAL_BLOCK();
     Serial.println(COLOR_BOLD COLOR_BLUE "╔════════════════════════════════════════════════════════════════╗" COLOR_RESET);
     Serial.println(COLOR_BOLD COLOR_BLUE "║  Starting Comprehensive Test Suite                            ║" COLOR_RESET);
     Serial.println(COLOR_BOLD COLOR_BLUE "╚════════════════════════════════════════════════════════════════╝" COLOR_RESET);
@@ -546,7 +643,7 @@ void testOperatingModes() {
 
         // Some modes may timeout or have conditions that prevent entry
         if (err != MCP2515::ERROR_OK && VERBOSE_OUTPUT) {
-            Serial.printf("    %sNote: Mode may require specific conditions (no pending TX, etc.)%s\n",
+            safe_printf("    %sNote: Mode may require specific conditions (no pending TX, etc.)%s\n",
                          COLOR_YELLOW, COLOR_RESET);
             test_stats.warnings++;
         }
@@ -664,7 +761,7 @@ void testFrameTransmission() {
     // **NEW:** Check TX buffer status
     bool buffer_ok = checkTXBufferAvailable();
     if (!buffer_ok && VERBOSE_OUTPUT) {
-        Serial.println("  " COLOR_YELLOW "Warning: TX buffers may be busy" COLOR_RESET);
+        safe_println("  " COLOR_YELLOW "Warning: TX buffers may be busy" COLOR_RESET);
     }
 
     // Test 1: Standard data frame
@@ -758,7 +855,7 @@ void testFrameReception() {
 
     if (TEST_MODE == TEST_MODE_TWO_DEVICE && DEVICE_ROLE == ROLE_SLAVE) {
         // Slave sends test frames
-        Serial.println(COLOR_YELLOW "Slave: Sending test frames for master..." COLOR_RESET);
+        safe_println(COLOR_YELLOW "Slave: Sending test frames for master..." COLOR_RESET);
 
         for (int i = 0; i < 5; i++) {
             struct can_frame tx_frame;
@@ -836,19 +933,19 @@ void testFrameReception() {
             printTestResult(integrity_ok, "Data integrity verified");
 
             if (VERBOSE_OUTPUT) {
-                Serial.println("  TX Frame:");
+                safe_println("  TX Frame:");
                 printFrame(&tx_frame, true);
-                Serial.println("  RX Frame:");
+                safe_println("  RX Frame:");
                 printFrame(&rx_frame, false);
 
                 if (!integrity_ok) {
-                    Serial.printf("  %sIntegrity Check Details:%s\n", COLOR_YELLOW, COLOR_RESET);
-                    Serial.printf("    ID Match:  %s\n", id_match ? "✓" : "✗");
-                    Serial.printf("    DLC Match: %s\n", dlc_match ? "✓" : "✗");
-                    Serial.printf("    Data Match: %s\n", data_match ? "✓" : "✗");
+                    safe_printf("  %sIntegrity Check Details:%s\n", COLOR_YELLOW, COLOR_RESET);
+                    safe_printf("    ID Match:  %s\n", id_match ? "✓" : "✗");
+                    safe_printf("    DLC Match: %s\n", dlc_match ? "✓" : "✗");
+                    safe_printf("    Data Match: %s\n", data_match ? "✓" : "✗");
 
                     if (!data_match) {
-                        Serial.println("  Expected vs Actual Data:");
+                        safe_println("  Expected vs Actual Data:");
                         printDataComparison(tx_frame.data, rx_frame.data, tx_frame.can_dlc);
                     }
                 }
@@ -859,10 +956,10 @@ void testFrameReception() {
     } else {
         printTestResult(false, "No message received in loopback");
         if (VERBOSE_OUTPUT) {
-            Serial.println("  " COLOR_YELLOW "Possible causes:" COLOR_RESET);
-            Serial.println("    - Loopback mode not properly set");
-            Serial.println("    - RX buffers full or overflow");
-            Serial.println("    - Timing issue (try increasing delay)");
+            safe_println("  " COLOR_YELLOW "Possible causes:" COLOR_RESET);
+            safe_println("    - Loopback mode not properly set");
+            safe_println("    - RX buffers full or overflow");
+            safe_println("    - Timing issue (try increasing delay)");
         }
     }
 
@@ -881,7 +978,7 @@ void testFrameReception() {
         printTestResult(err == MCP2515::ERROR_OK, "RXB0 read successful");
     } else {
         test_stats.skipped_tests++;
-        Serial.println("  " COLOR_YELLOW "SKIP - No message to read" COLOR_RESET);
+        safe_println("  " COLOR_YELLOW "SKIP - No message to read" COLOR_RESET);
     }
 
     // Test no message available - **FIX:** Corrected logic
@@ -901,7 +998,7 @@ void testFrameReception() {
     printTestResult(correct_behavior, "ERROR_NOMSG returned correctly");
 
     if (!correct_behavior && VERBOSE_OUTPUT) {
-        Serial.printf("    Expected ERROR_NOMSG, got error code: %d\n", err);
+        safe_printf("    Expected ERROR_NOMSG, got error code: %d\n", err);
     }
 
     delay(100);
@@ -919,14 +1016,14 @@ void testErrorHandling() {
     uint8_t eflg = mcp2515.getErrorFlags();
     printTestResult(true, "Error flags read");
     if (VERBOSE_OUTPUT) {
-        Serial.printf("  EFLG = 0x%02X\n", eflg);
-        if (eflg & MCP2515::EFLG_RX0OVR) Serial.println("    - RX0 Overflow");
-        if (eflg & MCP2515::EFLG_RX1OVR) Serial.println("    - RX1 Overflow");
-        if (eflg & MCP2515::EFLG_TXBO) Serial.println("    - TX Bus-Off");
-        if (eflg & MCP2515::EFLG_TXEP) Serial.println("    - TX Error Passive");
-        if (eflg & MCP2515::EFLG_RXEP) Serial.println("    - RX Error Passive");
-        if (eflg & MCP2515::EFLG_TXWAR) Serial.println("    - TX Error Warning");
-        if (eflg & MCP2515::EFLG_RXWAR) Serial.println("    - RX Error Warning");
+        safe_printf("  EFLG = 0x%02X\n", eflg);
+        if (eflg & MCP2515::EFLG_RX0OVR) safe_println("    - RX0 Overflow");
+        if (eflg & MCP2515::EFLG_RX1OVR) safe_println("    - RX1 Overflow");
+        if (eflg & MCP2515::EFLG_TXBO) safe_println("    - TX Bus-Off");
+        if (eflg & MCP2515::EFLG_TXEP) safe_println("    - TX Error Passive");
+        if (eflg & MCP2515::EFLG_RXEP) safe_println("    - RX Error Passive");
+        if (eflg & MCP2515::EFLG_TXWAR) safe_println("    - TX Error Warning");
+        if (eflg & MCP2515::EFLG_RXWAR) safe_println("    - RX Error Warning");
     }
 
     // Test 2: Check error
@@ -938,12 +1035,12 @@ void testErrorHandling() {
     printTestHeader("Read RX Error Counter");
     uint8_t rec = mcp2515.errorCountRX();
     printTestResult(true, "RX error count read");
-    if (VERBOSE_OUTPUT) Serial.printf("  REC = %d\n", rec);
+    if (VERBOSE_OUTPUT) safe_printf("  REC = %d\n", rec);
 
     printTestHeader("Read TX Error Counter");
     uint8_t tec = mcp2515.errorCountTX();
     printTestResult(true, "TX error count read");
-    if (VERBOSE_OUTPUT) Serial.printf("  TEC = %d\n", tec);
+    if (VERBOSE_OUTPUT) safe_printf("  TEC = %d\n", tec);
 
     // Test 4: Clear overflow flags
     printTestHeader("Clear RXnOVR Flags");
@@ -977,7 +1074,7 @@ void testErrorHandling() {
     printTestHeader("Get Bus Status");
     uint8_t bus_status = mcp2515.getBusStatus();
     printTestResult(true, "Bus status read");
-    if (VERBOSE_OUTPUT) Serial.printf("  CANSTAT = 0x%02X\n", bus_status);
+    if (VERBOSE_OUTPUT) safe_printf("  CANSTAT = 0x%02X\n", bus_status);
     #endif
 
     delay(100);
@@ -996,22 +1093,22 @@ void testInterruptFunctions() {
     uint8_t irq = mcp2515.getInterrupts();
     printTestResult(true, "Interrupt flags read");
     if (VERBOSE_OUTPUT) {
-        Serial.printf("  CANINTF = 0x%02X\n", irq);
-        if (irq & MCP2515::CANINTF_RX0IF) Serial.println("    - RX0 Interrupt");
-        if (irq & MCP2515::CANINTF_RX1IF) Serial.println("    - RX1 Interrupt");
-        if (irq & MCP2515::CANINTF_TX0IF) Serial.println("    - TX0 Interrupt");
-        if (irq & MCP2515::CANINTF_TX1IF) Serial.println("    - TX1 Interrupt");
-        if (irq & MCP2515::CANINTF_TX2IF) Serial.println("    - TX2 Interrupt");
-        if (irq & MCP2515::CANINTF_ERRIF) Serial.println("    - Error Interrupt");
-        if (irq & MCP2515::CANINTF_WAKIF) Serial.println("    - Wake Interrupt");
-        if (irq & MCP2515::CANINTF_MERRF) Serial.println("    - Message Error");
+        safe_printf("  CANINTF = 0x%02X\n", irq);
+        if (irq & MCP2515::CANINTF_RX0IF) safe_println("    - RX0 Interrupt");
+        if (irq & MCP2515::CANINTF_RX1IF) safe_println("    - RX1 Interrupt");
+        if (irq & MCP2515::CANINTF_TX0IF) safe_println("    - TX0 Interrupt");
+        if (irq & MCP2515::CANINTF_TX1IF) safe_println("    - TX1 Interrupt");
+        if (irq & MCP2515::CANINTF_TX2IF) safe_println("    - TX2 Interrupt");
+        if (irq & MCP2515::CANINTF_ERRIF) safe_println("    - Error Interrupt");
+        if (irq & MCP2515::CANINTF_WAKIF) safe_println("    - Wake Interrupt");
+        if (irq & MCP2515::CANINTF_MERRF) safe_println("    - Message Error");
     }
 
     // Test 2: Get interrupt mask
     printTestHeader("Get Interrupt Mask");
     uint8_t imask = mcp2515.getInterruptMask();
     printTestResult(true, "Interrupt mask read");
-    if (VERBOSE_OUTPUT) Serial.printf("  CANINTE = 0x%02X\n", imask);
+    if (VERBOSE_OUTPUT) safe_printf("  CANINTE = 0x%02X\n", imask);
 
     // Test 3: Clear all interrupts
     printTestHeader("Clear All Interrupts");
@@ -1073,25 +1170,25 @@ void testStatistics() {
     printTestResult(true, "Statistics retrieved");
 
     if (VERBOSE_OUTPUT) {
-        Serial.println("  Statistics:");
-        Serial.printf("    RX Frames:     %lu\n", stats.rx_frames);
-        Serial.printf("    TX Frames:     %lu\n", stats.tx_frames);
-        Serial.printf("    RX Errors:     %lu\n", stats.rx_errors);
-        Serial.printf("    TX Errors:     %lu\n", stats.tx_errors);
-        Serial.printf("    RX Overflow:   %lu\n", stats.rx_overflow);
-        Serial.printf("    TX Timeouts:   %lu\n", stats.tx_timeouts);
-        Serial.printf("    Bus Errors:    %lu\n", stats.bus_errors);
-        Serial.printf("    Bus-Off Count: %lu\n", stats.bus_off_count);
+        safe_println("  Statistics:");
+        safe_printf("    RX Frames:     %lu\n", stats.rx_frames);
+        safe_printf("    TX Frames:     %lu\n", stats.tx_frames);
+        safe_printf("    RX Errors:     %lu\n", stats.rx_errors);
+        safe_printf("    TX Errors:     %lu\n", stats.tx_errors);
+        safe_printf("    RX Overflow:   %lu\n", stats.rx_overflow);
+        safe_printf("    TX Timeouts:   %lu\n", stats.tx_timeouts);
+        safe_printf("    Bus Errors:    %lu\n", stats.bus_errors);
+        safe_printf("    Bus-Off Count: %lu\n", stats.bus_off_count);
     }
 
     // Test 4: Get RX queue count
     printTestHeader("Get RX Queue Count");
     uint32_t queue_count = mcp2515.getRxQueueCount();
     printTestResult(true, "Queue count retrieved");
-    if (VERBOSE_OUTPUT) Serial.printf("  Queue count = %lu\n", queue_count);
+    if (VERBOSE_OUTPUT) safe_printf("  Queue count = %lu\n", queue_count);
 
     #else
-    Serial.println(COLOR_YELLOW "Statistics tests are ESP32-specific - skipped" COLOR_RESET);
+    safe_println(COLOR_YELLOW "Statistics tests are ESP32-specific - skipped" COLOR_RESET);
     test_stats.skipped_tests += 4;
     #endif
 
@@ -1110,9 +1207,9 @@ void testStatusFunctions() {
     uint8_t status = mcp2515.getStatus();
     printTestResult(true, "Status read");
     if (VERBOSE_OUTPUT) {
-        Serial.printf("  Status = 0x%02X\n", status);
-        if (status & 0x01) Serial.println("    - RX0IF");
-        if (status & 0x02) Serial.println("    - RX1IF");
+        safe_printf("  Status = 0x%02X\n", status);
+        if (status & 0x01) safe_println("    - RX0IF");
+        if (status & 0x02) safe_println("    - RX1IF");
     }
 
     delay(100);
@@ -1139,8 +1236,8 @@ void testStressScenarios() {
     uint32_t theoretical_fps = getTheoreticalFramesPerSecond(current_test_speed);
 
     if (VERBOSE_OUTPUT) {
-        Serial.printf("  Target Rate:     ~%lu frames/sec\n", theoretical_fps);
-        Serial.printf("  Inter-frame Delay: %lu µs\n", delay_micros);
+        safe_printf("  Target Rate:     ~%lu frames/sec\n", theoretical_fps);
+        safe_printf("  Inter-frame Delay: %lu µs\n", delay_micros);
     }
 
     struct can_frame stress_frame;
@@ -1184,20 +1281,20 @@ void testStressScenarios() {
     float error_rate = (frame_count + error_count > 0) ?
         ((float)error_count / (frame_count + error_count) * 100.0) : 0.0;
 
-    Serial.printf("  Sent %lu frames in %lu ms (%.1f frames/sec)\n",
+    safe_printf("  Sent %lu frames in %lu ms (%.1f frames/sec)\n",
                   frame_count, duration, frames_per_sec);
-    Serial.printf("  Errors: %lu (%.2f%%), Buffer Full: %lu\n",
+    safe_printf("  Errors: %lu (%.2f%%), Buffer Full: %lu\n",
                   error_count, error_rate, buffer_full_count);
 
     // **NEW:** Performance analysis
     if (VERBOSE_OUTPUT) {
         float utilization = (frames_per_sec / theoretical_fps) * 100.0;
-        Serial.printf("  Bus Utilization: %.1f%% of theoretical max\n", utilization);
+        safe_printf("  Bus Utilization: %.1f%% of theoretical max\n", utilization);
 
         if (error_rate > 50.0) {
-            Serial.printf("  %s⚠ High error rate suggests TX buffers saturated%s\n",
+            safe_printf("  %s⚠ High error rate suggests TX buffers saturated%s\n",
                          COLOR_YELLOW, COLOR_RESET);
-            Serial.println("  Recommendation: Reduce send rate or increase CAN speed");
+            safe_println("  Recommendation: Reduce send rate or increase CAN speed");
         }
     }
 
@@ -1228,7 +1325,7 @@ void testStressScenarios() {
         uint8_t eflg = mcp2515.getErrorFlags();
         bool overflow_detected = (eflg & (MCP2515::EFLG_RX0OVR | MCP2515::EFLG_RX1OVR));
 
-        Serial.printf("  Overflow %s\n", overflow_detected ? "DETECTED" : "NOT DETECTED");
+        safe_printf("  Overflow %s\n", overflow_detected ? "DETECTED" : "NOT DETECTED");
         printTestResult(true, "Overflow test completed");
 
         // Clear overflow for subsequent tests
@@ -1296,6 +1393,7 @@ void testAdvancedFeatures() {
 // ============================================================================
 
 void printSectionHeader(const char* section_name) {
+    SAFE_SERIAL_BLOCK();
     Serial.println();
     Serial.println(COLOR_BOLD COLOR_MAGENTA "┌────────────────────────────────────────────────────────────────┐" COLOR_RESET);
     Serial.printf(COLOR_BOLD COLOR_MAGENTA "│ %-62s │\n" COLOR_RESET, section_name);
@@ -1303,11 +1401,13 @@ void printSectionHeader(const char* section_name) {
 }
 
 void printTestHeader(const char* test_name) {
+    SAFE_SERIAL_BLOCK();
     Serial.printf("\n%s[TEST]%s %s\n", COLOR_BOLD COLOR_CYAN, COLOR_RESET, test_name);
     test_stats.total_tests++;
 }
 
 void printTestResult(bool passed, const char* message) {
+    SAFE_SERIAL_BLOCK();
     if (passed) {
         test_stats.passed_tests++;
         Serial.printf("  %s✓ PASS%s", COLOR_GREEN, COLOR_RESET);
@@ -1324,6 +1424,7 @@ void printTestResult(bool passed, const char* message) {
 }
 
 void printFrame(const struct can_frame* frame, bool is_tx) {
+    SAFE_SERIAL_BLOCK();
     Serial.printf("  %s[%s]%s ID: 0x%08X %s%s%s DLC: %d Data: ",
                  COLOR_YELLOW,
                  is_tx ? "TX" : "RX",
@@ -1342,6 +1443,7 @@ void printFrame(const struct can_frame* frame, bool is_tx) {
 
 // **NEW:** Print data comparison for debugging
 void printDataComparison(const uint8_t* expected, const uint8_t* actual, uint8_t length) {
+    SAFE_SERIAL_BLOCK();
     Serial.print("    Expected: ");
     for (uint8_t i = 0; i < length; i++) {
         Serial.printf("%02X ", expected[i]);
@@ -1404,6 +1506,7 @@ uint32_t getAdaptiveDelayMicros(CAN_SPEED speed) {
 }
 
 void printFinalStatistics() {
+    SAFE_SERIAL_BLOCK();
     Serial.println();
     Serial.println(COLOR_BOLD COLOR_CYAN "╔════════════════════════════════════════════════════════════════╗" COLOR_RESET);
     Serial.println(COLOR_BOLD COLOR_CYAN "║                     FINAL TEST RESULTS                         ║" COLOR_RESET);
