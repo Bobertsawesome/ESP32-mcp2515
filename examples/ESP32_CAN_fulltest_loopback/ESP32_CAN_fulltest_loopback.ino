@@ -366,17 +366,19 @@ void test_bitrate_configuration(CAN_SPEED speed, CAN_CLOCK crystal) {
 void test_mode_switching() {
     print_header("MODE SWITCHING TESTS");
 
-    // Test each mode with proper delays
+    // Test each mode with proper delays AND validation
     struct {
         const char* name;
         MCP2515::ERROR (*func)();
+        uint8_t expected_mode;  // Expected mode bits (CANSTAT >> 5)
+        const char* mode_name;
     } modes[] = {
-        {"setLoopbackMode()", []() { return can.setLoopbackMode(); }},
-        {"setListenOnlyMode()", []() { return can.setListenOnlyMode(); }},
-        {"setNormalMode()", []() { return can.setNormalMode(); }},
-        {"setNormalOneShotMode()", []() { return can.setNormalOneShotMode(); }},
-        {"setSleepMode()", []() { return can.setSleepMode(); }},
-        {"setConfigMode()", []() { return can.setConfigMode(); }}
+        {"setLoopbackMode()", []() { return can.setLoopbackMode(); }, 0x02, "Loopback"},
+        {"setListenOnlyMode()", []() { return can.setListenOnlyMode(); }, 0x03, "Listen-Only"},
+        {"setNormalMode()", []() { return can.setNormalMode(); }, 0x00, "Normal"},
+        {"setNormalOneShotMode()", []() { return can.setNormalOneShotMode(); }, 0x00, "Normal One-Shot"},  // Same as normal in CANSTAT
+        {"setSleepMode()", []() { return can.setSleepMode(); }, 0x01, "Sleep"},
+        {"setConfigMode()", []() { return can.setConfigMode(); }, 0x04, "Configuration"}
     };
 
     for (int i = 0; i < 6; i++) {
@@ -385,8 +387,24 @@ void test_mode_switching() {
         delay(MODE_CHANGE_DELAY_MS);  // Allow mode to settle
 
         if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-            print_pass("Mode change succeeded");
+            safe_printf("%s[PASS]%s Mode function returned ERROR_OK%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
             global_stats.record_pass();
+
+            // VALIDATION: Read back bus status to verify mode was actually entered
+            if (mcp2515_connected) {
+                uint8_t bus_status = can.getBusStatus();
+                uint8_t actual_mode = (bus_status >> 5) & 0x07;
+
+                if (actual_mode == modes[i].expected_mode) {
+                    safe_printf("%s[PASS]%s Mode verified: %s (0x%02X)%s\n",
+                               ANSI_GREEN, ANSI_RESET, modes[i].mode_name, actual_mode, ANSI_RESET);
+                    global_stats.record_pass();
+                } else {
+                    safe_printf("%s[FAIL]%s Mode mismatch: expected 0x%02X, got 0x%02X%s\n",
+                               ANSI_RED, ANSI_RESET, modes[i].expected_mode, actual_mode, ANSI_RESET);
+                    global_stats.record_fail();
+                }
+            }
         } else {
             print_fail("Mode change failed");
             global_stats.record_fail();
@@ -468,6 +486,74 @@ void test_filters_and_masks() {
             safe_printf("%s[FAIL]%s %s\n", ANSI_RED, ANSI_RESET, filter_tests[i].desc);
             global_stats.record_fail();
         }
+    }
+
+    // FUNCTIONAL TEST: Verify filters actually filter messages
+    print_subheader("Functional Filter Test");
+
+    if (mcp2515_connected) {
+        // Set RXF0 to accept only 0x100, MASK0 for exact match
+        can.setFilter(MCP2515::RXF0, false, 0x100);
+        can.setFilterMask(MCP2515::MASK0, false, 0x7FF);  // Exact match
+        delay(FILTER_CONFIG_DELAY_MS);
+
+        // Return to loopback mode
+        can.setLoopbackMode();
+        delay(MODE_CHANGE_DELAY_MS);
+
+        // Clear any pending messages
+        struct can_frame dummy;
+        while (can.readMessage(&dummy) == MCP2515::ERROR_OK) {}
+        delay(10);
+
+        // Test 1: Send matching ID (should be received)
+        struct can_frame tx_frame;
+        tx_frame.can_id = 0x100;  // Matches filter
+        tx_frame.can_dlc = 2;
+        tx_frame.data[0] = 0xAA;
+        tx_frame.data[1] = 0xBB;
+
+        can.sendMessage(&tx_frame);
+        delay(50);
+
+        struct can_frame rx_frame;
+        MCP2515::ERROR err = can.readMessage(&rx_frame);
+        if (err == MCP2515::ERROR_OK) {
+            if ((rx_frame.can_id & CAN_SFF_MASK) == 0x100) {
+                print_pass("Filter PASSED: Matching ID received");
+                global_stats.record_pass();
+            } else {
+                print_fail("Filter FAILED: Wrong ID received");
+                global_stats.record_fail();
+            }
+        } else {
+            print_fail("Filter FAILED: Matching ID not received");
+            global_stats.record_fail();
+        }
+
+        // Test 2: Send non-matching ID (should be rejected)
+        tx_frame.can_id = 0x200;  // Does NOT match filter
+        can.sendMessage(&tx_frame);
+        delay(50);
+
+        err = can.readMessage(&rx_frame);
+        if (err == MCP2515::ERROR_NOMSG) {
+            print_pass("Filter PASSED: Non-matching ID rejected");
+            global_stats.record_pass();
+        } else {
+            print_fail("Filter FAILED: Non-matching ID was received");
+            global_stats.record_fail();
+        }
+
+        // Reset filters to accept all for remaining tests
+        can.setConfigMode();
+        delay(MODE_CHANGE_DELAY_MS);
+        can.setFilterMask(MCP2515::MASK0, false, 0x000);
+        can.setFilterMask(MCP2515::MASK1, false, 0x000);
+        delay(FILTER_CONFIG_DELAY_MS);
+    } else {
+        print_warn("Skipping functional filter test - MCP2515 not connected");
+        global_stats.record_warning();
     }
 
     // Return to loopback mode
@@ -856,22 +942,43 @@ void test_interrupt_management() {
     print_subheader("Test: clearRXnOVRFlags()");
     can.clearRXnOVRFlags();
     delay(10);
-    print_pass("clearRXnOVRFlags() executed");
-    global_stats.record_pass();
+    eflg = can.getErrorFlags();
+    ovr_cleared = (eflg & (MCP2515::EFLG_RX0OVR | MCP2515::EFLG_RX1OVR)) == 0;
+    if (ovr_cleared || !mcp2515_connected) {
+        print_pass("clearRXnOVRFlags() verified");
+        global_stats.record_pass();
+    } else {
+        print_fail("RX overflow flags still set after clearRXnOVRFlags()");
+        global_stats.record_fail();
+    }
 
     // Test clearMERR
     print_subheader("Test: clearMERR()");
     can.clearMERR();
     delay(10);
-    print_pass("clearMERR() executed");
-    global_stats.record_pass();
+    interrupts = can.getInterrupts();
+    bool merr_cleared = (interrupts & MCP2515::CANINTF_MERRF) == 0;
+    if (merr_cleared || !mcp2515_connected) {
+        print_pass("clearMERR() verified - MERRF flag cleared");
+        global_stats.record_pass();
+    } else {
+        print_fail("MERRF flag still set after clearMERR()");
+        global_stats.record_fail();
+    }
 
     // Test clearERRIF
     print_subheader("Test: clearERRIF()");
     can.clearERRIF();
     delay(10);
-    print_pass("clearERRIF() executed");
-    global_stats.record_pass();
+    interrupts = can.getInterrupts();
+    bool errif_cleared = (interrupts & MCP2515::CANINTF_ERRIF) == 0;
+    if (errif_cleared || !mcp2515_connected) {
+        print_pass("clearERRIF() verified - ERRIF flag cleared");
+        global_stats.record_pass();
+    } else {
+        print_fail("ERRIF flag still set after clearERRIF()");
+        global_stats.record_fail();
+    }
 }
 
 // ============================================================================
@@ -984,6 +1091,255 @@ void test_clock_output() {
                        ANSI_RED, ANSI_RESET, clkout_names[i], ANSI_RESET);
             global_stats.record_fail();
         }
+    }
+}
+
+// ============================================================================
+// EXTENDED FRAME TESTING
+// ============================================================================
+
+void test_extended_frames(uint32_t settle_time_ms) {
+    print_header("EXTENDED FRAME (29-bit ID) TESTS");
+
+    if (!mcp2515_connected) {
+        print_warn("Skipping extended frame tests - MCP2515 not connected");
+        return;
+    }
+
+    // Test extended frame transmission and reception
+    print_subheader("Test: Extended Frame TX/RX");
+
+    struct can_frame tx_frame;
+    tx_frame.can_id = 0x12345678 | CAN_EFF_FLAG;  // Extended ID with EFF flag
+    tx_frame.can_dlc = 8;
+    for (int i = 0; i < 8; i++) {
+        tx_frame.data[i] = 0xE0 + i;  // Extended frame marker
+    }
+
+    MCP2515::ERROR err = can.sendMessage(&tx_frame);
+    if (err != MCP2515::ERROR_OK) {
+        print_fail("Extended frame send failed");
+        global_stats.record_fail();
+        return;
+    }
+    delay(settle_time_ms);
+
+    struct can_frame rx_frame;
+    err = can.readMessage(&rx_frame);
+
+    if (err == MCP2515::ERROR_OK) {
+        // Verify extended frame flag is set
+        if (rx_frame.can_id & CAN_EFF_FLAG) {
+            print_pass("Extended frame flag verified");
+            global_stats.record_pass();
+
+            // Verify 29-bit ID matches
+            uint32_t rx_id = rx_frame.can_id & CAN_EFF_MASK;
+            if (rx_id == 0x12345678) {
+                print_pass("Extended frame ID verified (0x12345678)");
+                global_stats.record_pass();
+            } else {
+                safe_printf("%s[FAIL]%s Extended ID mismatch: expected 0x12345678, got 0x%08lX%s\n",
+                           ANSI_RED, ANSI_RESET, (unsigned long)rx_id, ANSI_RESET);
+                global_stats.record_fail();
+            }
+
+            // Verify data
+            if (verify_frame_data(&rx_frame, 0x12345678, 8, tx_frame.data)) {
+                print_pass("Extended frame data verified");
+                global_stats.record_pass();
+            } else {
+                print_fail("Extended frame data mismatch");
+                global_stats.record_fail();
+            }
+        } else {
+            print_fail("Extended frame flag not set in received frame");
+            global_stats.record_fail();
+        }
+    } else {
+        print_fail("Extended frame not received");
+        global_stats.record_fail();
+    }
+
+    // Test multiple extended IDs
+    print_subheader("Test: Multiple Extended IDs");
+
+    uint32_t test_ids[] = {0x00000001, 0x1FFFFFFF, 0x10000000, 0x0FFFFFFF};
+    const char* test_names[] = {"Min+1", "Max", "Mid-high", "Mid-low"};
+
+    for (int i = 0; i < 4; i++) {
+        tx_frame.can_id = test_ids[i] | CAN_EFF_FLAG;
+        tx_frame.can_dlc = 1;
+        tx_frame.data[0] = i;
+
+        can.sendMessage(&tx_frame);
+        delay(settle_time_ms);
+
+        if (can.readMessage(&rx_frame) == MCP2515::ERROR_OK) {
+            uint32_t rx_id = rx_frame.can_id & CAN_EFF_MASK;
+            if (rx_id == test_ids[i]) {
+                safe_printf("%s[PASS]%s Extended ID %s: 0x%08lX%s\n",
+                           ANSI_GREEN, ANSI_RESET, test_names[i], (unsigned long)test_ids[i], ANSI_RESET);
+                global_stats.record_pass();
+            } else {
+                safe_printf("%s[FAIL]%s Extended ID %s mismatch%s\n",
+                           ANSI_RED, ANSI_RESET, test_names[i], ANSI_RESET);
+                global_stats.record_fail();
+            }
+        } else {
+            safe_printf("%s[FAIL]%s Extended ID %s not received%s\n",
+                       ANSI_RED, ANSI_RESET, test_names[i], ANSI_RESET);
+            global_stats.record_fail();
+        }
+    }
+}
+
+// ============================================================================
+// DLC VARIATION TESTING
+// ============================================================================
+
+void test_dlc_variations(uint32_t settle_time_ms) {
+    print_header("DLC VARIATION TESTS");
+
+    if (!mcp2515_connected) {
+        print_warn("Skipping DLC tests - MCP2515 not connected");
+        return;
+    }
+
+    print_subheader("Test: All DLC Values (0-8)");
+
+    // Test all valid DLC values
+    for (uint8_t dlc = 0; dlc <= 8; dlc++) {
+        struct can_frame tx_frame;
+        tx_frame.can_id = 0x500 + dlc;
+        tx_frame.can_dlc = dlc;
+
+        // Fill data with pattern
+        for (int i = 0; i < dlc; i++) {
+            tx_frame.data[i] = 0xD0 + i;  // DLC marker pattern
+        }
+
+        MCP2515::ERROR err = can.sendMessage(&tx_frame);
+        if (err != MCP2515::ERROR_OK) {
+            safe_printf("%s[FAIL]%s DLC=%d send failed%s\n", ANSI_RED, ANSI_RESET, dlc, ANSI_RESET);
+            global_stats.record_fail();
+            continue;
+        }
+
+        delay(settle_time_ms);
+
+        struct can_frame rx_frame;
+        err = can.readMessage(&rx_frame);
+
+        if (err == MCP2515::ERROR_OK) {
+            if (rx_frame.can_dlc == dlc) {
+                // Verify data matches
+                bool data_ok = true;
+                for (int i = 0; i < dlc; i++) {
+                    if (rx_frame.data[i] != tx_frame.data[i]) {
+                        data_ok = false;
+                        break;
+                    }
+                }
+
+                if (data_ok) {
+                    safe_printf("%s[PASS]%s DLC=%d verified with correct data%s\n",
+                               ANSI_GREEN, ANSI_RESET, dlc, ANSI_RESET);
+                    global_stats.record_pass();
+                } else {
+                    safe_printf("%s[FAIL]%s DLC=%d data mismatch%s\n",
+                               ANSI_RED, ANSI_RESET, dlc, ANSI_RESET);
+                    global_stats.record_fail();
+                }
+            } else {
+                safe_printf("%s[FAIL]%s DLC mismatch: expected %d, got %d%s\n",
+                           ANSI_RED, ANSI_RESET, dlc, rx_frame.can_dlc, ANSI_RESET);
+                global_stats.record_fail();
+            }
+        } else {
+            safe_printf("%s[FAIL]%s DLC=%d frame not received%s\n",
+                       ANSI_RED, ANSI_RESET, dlc, ANSI_RESET);
+            global_stats.record_fail();
+        }
+    }
+}
+
+// ============================================================================
+// RTR FRAME TESTING
+// ============================================================================
+
+void test_rtr_frames(uint32_t settle_time_ms) {
+    print_header("RTR (Remote Transmission Request) FRAME TESTS");
+
+    if (!mcp2515_connected) {
+        print_warn("Skipping RTR frame tests - MCP2515 not connected");
+        return;
+    }
+
+    print_subheader("Test: Standard RTR Frame");
+
+    struct can_frame tx_frame;
+    tx_frame.can_id = 0x600 | CAN_RTR_FLAG;  // Standard ID with RTR flag
+    tx_frame.can_dlc = 0;  // RTR frames have no data
+
+    MCP2515::ERROR err = can.sendMessage(&tx_frame);
+    if (err != MCP2515::ERROR_OK) {
+        print_fail("RTR frame send failed");
+        global_stats.record_fail();
+        return;
+    }
+
+    delay(settle_time_ms);
+
+    struct can_frame rx_frame;
+    err = can.readMessage(&rx_frame);
+
+    if (err == MCP2515::ERROR_OK) {
+        if (rx_frame.can_id & CAN_RTR_FLAG) {
+            print_pass("RTR flag verified in received frame");
+            global_stats.record_pass();
+
+            uint32_t rx_id = rx_frame.can_id & CAN_SFF_MASK;
+            if (rx_id == 0x600) {
+                print_pass("RTR frame ID verified (0x600)");
+                global_stats.record_pass();
+            } else {
+                safe_printf("%s[FAIL]%s RTR ID mismatch%s\n", ANSI_RED, ANSI_RESET, ANSI_RESET);
+                global_stats.record_fail();
+            }
+        } else {
+            print_fail("RTR flag not set in received frame");
+            global_stats.record_fail();
+        }
+    } else {
+        print_fail("RTR frame not received");
+        global_stats.record_fail();
+    }
+
+    // Test Extended RTR Frame
+    print_subheader("Test: Extended RTR Frame");
+
+    tx_frame.can_id = 0x12345600 | CAN_EFF_FLAG | CAN_RTR_FLAG;
+    tx_frame.can_dlc = 0;
+
+    err = can.sendMessage(&tx_frame);
+    delay(settle_time_ms);
+
+    if (can.readMessage(&rx_frame) == MCP2515::ERROR_OK) {
+        bool eff_ok = (rx_frame.can_id & CAN_EFF_FLAG) != 0;
+        bool rtr_ok = (rx_frame.can_id & CAN_RTR_FLAG) != 0;
+
+        if (eff_ok && rtr_ok) {
+            print_pass("Extended RTR frame verified (EFF + RTR flags)");
+            global_stats.record_pass();
+        } else {
+            safe_printf("%s[FAIL]%s Extended RTR flags: EFF=%d RTR=%d%s\n",
+                       ANSI_RED, ANSI_RESET, eff_ok, rtr_ok, ANSI_RESET);
+            global_stats.record_fail();
+        }
+    } else {
+        print_fail("Extended RTR frame not received");
+        global_stats.record_fail();
     }
 }
 
@@ -1140,6 +1496,9 @@ void run_full_test_suite(CAN_SPEED speed, CAN_CLOCK crystal) {
     test_interrupt_management();
     test_esp32_specific();
     test_clock_output();
+    test_extended_frames(settle_time);
+    test_dlc_variations(settle_time);
+    test_rtr_frames(settle_time);
     test_stress(speed, settle_time);
 
     // Print summary
