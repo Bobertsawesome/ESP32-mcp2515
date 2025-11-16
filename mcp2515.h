@@ -298,7 +298,8 @@ class MCP2515
             ERROR_FAILTX    = 4,
             ERROR_NOMSG     = 5,
             ERROR_TIMEOUT   = 6,    ///< Timeout error (ESP32)
-            ERROR_MUTEX     = 7     ///< Mutex acquisition failed (ESP32)
+            ERROR_MUTEX     = 7,    ///< Mutex acquisition failed (ESP32)
+            ERROR_PSRAM     = 8     ///< PSRAM+DMA conflict detected (ESP32)
         };
 
         enum MASK {
@@ -554,16 +555,16 @@ class MCP2515
 
     private:
 
-        void startSPI();
-        void endSPI();
+        void IRAM_ATTR startSPI();
+        void IRAM_ATTR endSPI();
 
         ERROR setMode(const CANCTRL_REQOP_MODE mode);
 
-        uint8_t readRegister(const REGISTER reg);
-        void readRegisters(const REGISTER reg, uint8_t values[], const uint8_t n);
-        void setRegister(const REGISTER reg, const uint8_t value);
-        void setRegisters(const REGISTER reg, const uint8_t values[], const uint8_t n);
-        void modifyRegister(const REGISTER reg, const uint8_t mask, const uint8_t data);
+        uint8_t IRAM_ATTR readRegister(const REGISTER reg);
+        ERROR IRAM_ATTR readRegisters(const REGISTER reg, uint8_t values[], const uint8_t n);
+        ERROR IRAM_ATTR setRegister(const REGISTER reg, const uint8_t value);
+        ERROR IRAM_ATTR setRegisters(const REGISTER reg, const uint8_t values[], const uint8_t n);
+        ERROR IRAM_ATTR modifyRegister(const REGISTER reg, const uint8_t mask, const uint8_t data);
 
         void prepareId(uint8_t *buffer, const bool ext, const uint32_t id);
 
@@ -635,21 +636,21 @@ class MCP2515
         ERROR setTransmitPriority(const TXBn txbn, const uint8_t priority);
         ERROR abortTransmission(const TXBn txbn);
         ERROR abortAllTransmissions(void);
-        ERROR readMessage(const RXBn rxbn, struct can_frame *frame);
-        ERROR readMessage(struct can_frame *frame);
+        ERROR IRAM_ATTR readMessage(const RXBn rxbn, struct can_frame *frame);
+        ERROR IRAM_ATTR readMessage(struct can_frame *frame);
         uint8_t getFilterHit(const RXBn rxbn);
         bool checkReceive(void);
         bool checkError(void);
-        uint8_t getErrorFlags(void);
+        uint8_t IRAM_ATTR getErrorFlags(void);
         void clearRXnOVRFlags(void);
-        uint8_t getInterrupts(void);
+        uint8_t IRAM_ATTR getInterrupts(void);
         uint8_t getInterruptMask(void);
         void clearInterrupts(void);
-        void clearTXInterrupts(void);
-        uint8_t getStatus(void);
+        void IRAM_ATTR clearTXInterrupts(void);
+        uint8_t IRAM_ATTR getStatus(void);
         void clearRXnOVR(void);
         void clearMERR();
-        void clearERRIF();
+        void IRAM_ATTR clearERRIF();
         uint8_t errorCountRX(void);
         uint8_t errorCountTX(void);
 

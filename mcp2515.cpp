@@ -297,7 +297,7 @@ inline uint8_t MCP2515::spiTransfer(uint8_t data) {
 #define SPI_TRANSFER(x) SPIn->transfer(x)
 #endif
 
-void MCP2515::startSPI() {
+void IRAM_ATTR MCP2515::startSPI() {
 #ifdef ESP32
     #ifdef ARDUINO
         SPIn->beginTransaction(SPISettings(SPI_CLOCK, MSBFIRST, SPI_MODE0));
@@ -311,7 +311,7 @@ void MCP2515::startSPI() {
 #endif
 }
 
-void MCP2515::endSPI() {
+void IRAM_ATTR MCP2515::endSPI() {
 #ifdef ESP32
     #ifdef ARDUINO
         digitalWrite(SPICS, HIGH);
@@ -335,23 +335,24 @@ MCP2515::ERROR MCP2515::reset(void)
 
     uint8_t zeros[14];
     memset(zeros, 0, sizeof(zeros));
-    setRegisters(MCP_TXB0CTRL, zeros, 14);
-    setRegisters(MCP_TXB1CTRL, zeros, 14);
-    setRegisters(MCP_TXB2CTRL, zeros, 14);
+    ERROR err;
+    if ((err = setRegisters(MCP_TXB0CTRL, zeros, 14)) != ERROR_OK) return err;
+    if ((err = setRegisters(MCP_TXB1CTRL, zeros, 14)) != ERROR_OK) return err;
+    if ((err = setRegisters(MCP_TXB2CTRL, zeros, 14)) != ERROR_OK) return err;
 
-    setRegister(MCP_RXB0CTRL, 0);
-    setRegister(MCP_RXB1CTRL, 0);
+    if ((err = setRegister(MCP_RXB0CTRL, 0)) != ERROR_OK) return err;
+    if ((err = setRegister(MCP_RXB1CTRL, 0)) != ERROR_OK) return err;
 
-    setRegister(MCP_CANINTE, CANINTF_RX0IF | CANINTF_RX1IF | CANINTF_ERRIF | CANINTF_MERRF);
+    if ((err = setRegister(MCP_CANINTE, CANINTF_RX0IF | CANINTF_RX1IF | CANINTF_ERRIF | CANINTF_MERRF)) != ERROR_OK) return err;
 
     // receives all valid messages using either Standard or Extended Identifiers that
     // meet filter criteria. RXF0 is applied for RXB0, RXF1 is applied for RXB1
-    modifyRegister(MCP_RXB0CTRL,
+    if ((err = modifyRegister(MCP_RXB0CTRL,
                    RXBnCTRL_RXM_MASK | RXB0CTRL_BUKT | RXB0CTRL_FILHIT_MASK,
-                   RXBnCTRL_RXM_STDEXT | RXB0CTRL_BUKT | RXB0CTRL_FILHIT);
-    modifyRegister(MCP_RXB1CTRL,
+                   RXBnCTRL_RXM_STDEXT | RXB0CTRL_BUKT | RXB0CTRL_FILHIT)) != ERROR_OK) return err;
+    if ((err = modifyRegister(MCP_RXB1CTRL,
                    RXBnCTRL_RXM_MASK | RXB1CTRL_FILHIT_MASK,
-                   RXBnCTRL_RXM_STDEXT | RXB1CTRL_FILHIT);
+                   RXBnCTRL_RXM_STDEXT | RXB1CTRL_FILHIT)) != ERROR_OK) return err;
 
     // clear filters and masks
     // do not filter any standard frames for RXF0 used by RXB0
@@ -376,7 +377,7 @@ MCP2515::ERROR MCP2515::reset(void)
     return ERROR_OK;
 }
 
-uint8_t MCP2515::readRegister(const REGISTER reg)
+uint8_t IRAM_ATTR MCP2515::readRegister(const REGISTER reg)
 {
 #ifdef ESP32
     if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
@@ -398,12 +399,13 @@ uint8_t MCP2515::readRegister(const REGISTER reg)
     return ret;
 }
 
-void MCP2515::readRegisters(const REGISTER reg, uint8_t values[], const uint8_t n)
+MCP2515::ERROR IRAM_ATTR MCP2515::readRegisters(const REGISTER reg, uint8_t values[], const uint8_t n)
 {
 #ifdef ESP32
-    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
+    ERROR err = acquireMutex(MCP2515_MUTEX_TIMEOUT);
+    if (err != ERROR_OK) {
         ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in readRegisters");
-        return;
+        return ERROR_MUTEX;
     }
 #endif
 
@@ -419,14 +421,17 @@ void MCP2515::readRegisters(const REGISTER reg, uint8_t values[], const uint8_t 
 #ifdef ESP32
     releaseMutex();
 #endif
+
+    return ERROR_OK;
 }
 
-void MCP2515::setRegister(const REGISTER reg, const uint8_t value)
+MCP2515::ERROR IRAM_ATTR MCP2515::setRegister(const REGISTER reg, const uint8_t value)
 {
 #ifdef ESP32
-    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
+    ERROR err = acquireMutex(MCP2515_MUTEX_TIMEOUT);
+    if (err != ERROR_OK) {
         ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in setRegister");
-        return;
+        return ERROR_MUTEX;
     }
 #endif
 
@@ -439,14 +444,17 @@ void MCP2515::setRegister(const REGISTER reg, const uint8_t value)
 #ifdef ESP32
     releaseMutex();
 #endif
+
+    return ERROR_OK;
 }
 
-void MCP2515::setRegisters(const REGISTER reg, const uint8_t values[], const uint8_t n)
+MCP2515::ERROR IRAM_ATTR MCP2515::setRegisters(const REGISTER reg, const uint8_t values[], const uint8_t n)
 {
 #ifdef ESP32
-    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
+    ERROR err = acquireMutex(MCP2515_MUTEX_TIMEOUT);
+    if (err != ERROR_OK) {
         ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in setRegisters");
-        return;
+        return ERROR_MUTEX;
     }
 #endif
 
@@ -461,14 +469,17 @@ void MCP2515::setRegisters(const REGISTER reg, const uint8_t values[], const uin
 #ifdef ESP32
     releaseMutex();
 #endif
+
+    return ERROR_OK;
 }
 
-void MCP2515::modifyRegister(const REGISTER reg, const uint8_t mask, const uint8_t data)
+MCP2515::ERROR IRAM_ATTR MCP2515::modifyRegister(const REGISTER reg, const uint8_t mask, const uint8_t data)
 {
 #ifdef ESP32
-    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
+    ERROR err = acquireMutex(MCP2515_MUTEX_TIMEOUT);
+    if (err != ERROR_OK) {
         ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in modifyRegister");
-        return;
+        return ERROR_MUTEX;
     }
 #endif
 
@@ -482,9 +493,11 @@ void MCP2515::modifyRegister(const REGISTER reg, const uint8_t mask, const uint8
 #ifdef ESP32
     releaseMutex();
 #endif
+
+    return ERROR_OK;
 }
 
-uint8_t MCP2515::getStatus(void)
+uint8_t IRAM_ATTR MCP2515::getStatus(void)
 {
 #ifdef ESP32
     if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
@@ -537,7 +550,8 @@ MCP2515::ERROR MCP2515::setNormalOneShotMode()
 
 MCP2515::ERROR MCP2515::setMode(const CANCTRL_REQOP_MODE mode)
 {
-    modifyRegister(MCP_CANCTRL, CANCTRL_REQOP | CANCTRL_OSM, mode);
+    ERROR err;
+    if ((err = modifyRegister(MCP_CANCTRL, CANCTRL_REQOP | CANCTRL_OSM, mode)) != ERROR_OK) return err;
 
     // Use delta-time pattern to prevent infinite loop when millis() overflows at 49.7 days
     unsigned long startTime = millis();
@@ -847,9 +861,10 @@ MCP2515::ERROR MCP2515::setBitrate(const CAN_SPEED canSpeed, CAN_CLOCK canClock)
     }
 
     if (set) {
-        setRegister(MCP_CNF1, cfg1);
-        setRegister(MCP_CNF2, cfg2);
-        setRegister(MCP_CNF3, cfg3);
+        ERROR err;
+        if ((err = setRegister(MCP_CNF1, cfg1)) != ERROR_OK) return err;
+        if ((err = setRegister(MCP_CNF2, cfg2)) != ERROR_OK) return err;
+        if ((err = setRegister(MCP_CNF3, cfg3)) != ERROR_OK) return err;
         return ERROR_OK;
     }
     else {
@@ -859,23 +874,24 @@ MCP2515::ERROR MCP2515::setBitrate(const CAN_SPEED canSpeed, CAN_CLOCK canClock)
 
 MCP2515::ERROR MCP2515::setClkOut(const CAN_CLKOUT divisor)
 {
+    ERROR err;
     if (divisor == CLKOUT_DISABLE) {
 	/* Turn off CLKEN */
-	modifyRegister(MCP_CANCTRL, CANCTRL_CLKEN, 0x00);
+	if ((err = modifyRegister(MCP_CANCTRL, CANCTRL_CLKEN, 0x00)) != ERROR_OK) return err;
 
 	/* Turn on CLKOUT for SOF */
-	modifyRegister(MCP_CNF3, CNF3_SOF, CNF3_SOF);
+	if ((err = modifyRegister(MCP_CNF3, CNF3_SOF, CNF3_SOF)) != ERROR_OK) return err;
         return ERROR_OK;
     }
 
     /* Set the prescaler (CLKPRE) */
-    modifyRegister(MCP_CANCTRL, CANCTRL_CLKPRE, divisor);
+    if ((err = modifyRegister(MCP_CANCTRL, CANCTRL_CLKPRE, divisor)) != ERROR_OK) return err;
 
     /* Turn on CLKEN */
-    modifyRegister(MCP_CANCTRL, CANCTRL_CLKEN, CANCTRL_CLKEN);
+    if ((err = modifyRegister(MCP_CANCTRL, CANCTRL_CLKEN, CANCTRL_CLKEN)) != ERROR_OK) return err;
 
     /* Turn off CLKOUT for SOF */
-    modifyRegister(MCP_CNF3, CNF3_SOF, 0x00);
+    if ((err = modifyRegister(MCP_CNF3, CNF3_SOF, 0x00)) != ERROR_OK) return err;
     return ERROR_OK;
 }
 
@@ -920,7 +936,8 @@ MCP2515::ERROR MCP2515::setFilterMask(const MASK mask, const bool ext, const uin
             return ERROR_FAIL;
     }
 
-    setRegisters(reg, tbufdata, 4);
+    ERROR err;
+    if ((err = setRegisters(reg, tbufdata, 4)) != ERROR_OK) return err;
 
     // Restore original mode
     return setMode((CANCTRL_REQOP_MODE)current_mode);
@@ -951,7 +968,8 @@ MCP2515::ERROR MCP2515::setFilter(const RXF num, const bool ext, const uint32_t 
 
     uint8_t tbufdata[4];
     prepareId(tbufdata, ext, ulData);
-    setRegisters(reg, tbufdata, 4);
+    ERROR err;
+    if ((err = setRegisters(reg, tbufdata, 4)) != ERROR_OK) return err;
 
     // Restore original mode
     return setMode((CANCTRL_REQOP_MODE)current_mode);
@@ -1009,7 +1027,8 @@ MCP2515::ERROR MCP2515::sendMessage(const TXBn txbn, const struct can_frame *fra
     releaseMutex();
 #endif
 
-    modifyRegister(txbuf->CTRL, TXB_TXREQ, TXB_TXREQ);
+    ERROR err;
+    if ((err = modifyRegister(txbuf->CTRL, TXB_TXREQ, TXB_TXREQ)) != ERROR_OK) return err;
 
     uint8_t ctrl = readRegister(txbuf->CTRL);
     if ((ctrl & (TXB_ABTF | TXB_MLOA | TXB_TXERR)) != 0) {
@@ -1093,7 +1112,8 @@ MCP2515::ERROR MCP2515::setTransmitPriority(const TXBn txbn, const uint8_t prior
     }
 
     // Set TXP[1:0] bits (bits 1:0 of TXBnCTRL)
-    modifyRegister(txbuf->CTRL, TXB_TXP, priority);
+    ERROR err;
+    if ((err = modifyRegister(txbuf->CTRL, TXB_TXP, priority)) != ERROR_OK) return err;
 
     return ERROR_OK;
 }
@@ -1103,13 +1123,14 @@ MCP2515::ERROR MCP2515::abortTransmission(const TXBn txbn)
     const struct TXBn_REGS *txbuf = &TXB[txbn];
 
     // Clear the TXREQ bit to abort transmission
-    modifyRegister(txbuf->CTRL, TXB_TXREQ, 0);
+    ERROR err;
+    if ((err = modifyRegister(txbuf->CTRL, TXB_TXREQ, 0)) != ERROR_OK) return err;
 
     // Check if abort was successful by reading ABTF flag
     uint8_t ctrl = readRegister(txbuf->CTRL);
     if (ctrl & TXB_ABTF) {
         // Clear the abort flag
-        modifyRegister(txbuf->CTRL, TXB_ABTF, 0);
+        if ((err = modifyRegister(txbuf->CTRL, TXB_ABTF, 0)) != ERROR_OK) return err;
     }
 
     return ERROR_OK;
@@ -1118,7 +1139,8 @@ MCP2515::ERROR MCP2515::abortTransmission(const TXBn txbn)
 MCP2515::ERROR MCP2515::abortAllTransmissions(void)
 {
     // Set ABAT bit in CANCTRL register to abort all pending transmissions
-    modifyRegister(MCP_CANCTRL, CANCTRL_ABAT, CANCTRL_ABAT);
+    ERROR err;
+    if ((err = modifyRegister(MCP_CANCTRL, CANCTRL_ABAT, CANCTRL_ABAT)) != ERROR_OK) return err;
 
     // Wait for abort to complete (ABAT bit is automatically cleared by hardware)
     // Use delta-time pattern to prevent infinite loop when millis() overflows at 49.7 days
@@ -1136,14 +1158,14 @@ MCP2515::ERROR MCP2515::abortAllTransmissions(void)
         const struct TXBn_REGS *txbuf = &TXB[i];
         uint8_t ctrl = readRegister(txbuf->CTRL);
         if (ctrl & TXB_ABTF) {
-            modifyRegister(txbuf->CTRL, TXB_ABTF, 0);
+            if ((err = modifyRegister(txbuf->CTRL, TXB_ABTF, 0)) != ERROR_OK) return err;
         }
     }
 
     return ERROR_OK;
 }
 
-MCP2515::ERROR MCP2515::readMessage(const RXBn rxbn, struct can_frame *frame)
+MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(const RXBn rxbn, struct can_frame *frame)
 {
     // Validate frame pointer to prevent crash on null dereference
     if (frame == nullptr) {
@@ -1218,12 +1240,13 @@ MCP2515::ERROR MCP2515::readMessage(const RXBn rxbn, struct can_frame *frame)
     releaseMutex();
 #endif
 
-    modifyRegister(MCP_CANINTF, rxb->CANINTF_RXnIF, 0);
+    ERROR err;
+    if ((err = modifyRegister(MCP_CANINTF, rxb->CANINTF_RXnIF, 0)) != ERROR_OK) return err;
 
     return ERROR_OK;
 }
 
-MCP2515::ERROR MCP2515::readMessage(struct can_frame *frame)
+MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(struct can_frame *frame)
 {
     // Validate frame pointer to prevent crash on null dereference
     if (frame == nullptr) {
@@ -1280,24 +1303,24 @@ bool MCP2515::checkError(void)
     }
 }
 
-uint8_t MCP2515::getErrorFlags(void)
+uint8_t IRAM_ATTR MCP2515::getErrorFlags(void)
 {
     return readRegister(MCP_EFLG);
 }
 
 void MCP2515::clearRXnOVRFlags(void)
 {
-	modifyRegister(MCP_EFLG, EFLG_RX0OVR | EFLG_RX1OVR, 0);
+	(void)modifyRegister(MCP_EFLG, EFLG_RX0OVR | EFLG_RX1OVR, 0);
 }
 
-uint8_t MCP2515::getInterrupts(void)
+uint8_t IRAM_ATTR MCP2515::getInterrupts(void)
 {
     return readRegister(MCP_CANINTF);
 }
 
 void MCP2515::clearInterrupts(void)
 {
-    setRegister(MCP_CANINTF, 0);
+    (void)setRegister(MCP_CANINTF, 0);
 }
 
 uint8_t MCP2515::getInterruptMask(void)
@@ -1305,9 +1328,9 @@ uint8_t MCP2515::getInterruptMask(void)
     return readRegister(MCP_CANINTE);
 }
 
-void MCP2515::clearTXInterrupts(void)
+void IRAM_ATTR MCP2515::clearTXInterrupts(void)
 {
-    modifyRegister(MCP_CANINTF, (CANINTF_TX0IF | CANINTF_TX1IF | CANINTF_TX2IF), 0);
+    (void)modifyRegister(MCP_CANINTF, (CANINTF_TX0IF | CANINTF_TX1IF | CANINTF_TX2IF), 0);
 }
 
 void MCP2515::clearRXnOVR(void)
@@ -1325,14 +1348,14 @@ void MCP2515::clearMERR()
 {
 	//modifyRegister(MCP_EFLG, EFLG_RX0OVR | EFLG_RX1OVR, 0);
 	//clearInterrupts();
-	modifyRegister(MCP_CANINTF, CANINTF_MERRF, 0);
+	(void)modifyRegister(MCP_CANINTF, CANINTF_MERRF, 0);
 }
 
-void MCP2515::clearERRIF()
+void IRAM_ATTR MCP2515::clearERRIF()
 {
     //modifyRegister(MCP_EFLG, EFLG_RX0OVR | EFLG_RX1OVR, 0);
     //clearInterrupts();
-    modifyRegister(MCP_CANINTF, CANINTF_ERRIF, 0);
+    (void)modifyRegister(MCP_CANINTF, CANINTF_ERRIF, 0);
 }
 
 uint8_t MCP2515::errorCountRX(void)                             
@@ -1396,6 +1419,16 @@ MCP2515::ERROR MCP2515::initSPI(const mcp2515_esp32_config_t* config)
         ESP_LOGE(MCP2515_LOG_TAG, "SPI device add failed: %s", esp_err_to_name(ret));
         return ERROR_FAILINIT;
     }
+
+    // PSRAM + DMA safety check (fail initialization if conflict detected)
+    #if CONFIG_SPIRAM_USE_MALLOC
+        #if MCP2515_SPI_DMA_CHAN != SPI_DMA_DISABLED
+            ESP_LOGE(MCP2515_LOG_TAG, "CRITICAL: PSRAM enabled but SPI DMA is also enabled!");
+            ESP_LOGE(MCP2515_LOG_TAG, "DMA cannot access PSRAM - this WILL cause crashes");
+            ESP_LOGE(MCP2515_LOG_TAG, "Fix: Disable PSRAM OR set MCP2515_SPI_DMA_CHAN=SPI_DMA_DISABLED");
+            return ERROR_PSRAM;  // Fail hard to prevent crashes
+        #endif
+    #endif
 
     // Create recursive mutex if requested (allows nested locking)
     if (config->use_mutex) {

@@ -97,6 +97,17 @@
 #endif
 
 // ===========================
+// PSRAM + DMA Safety Check
+// ===========================
+
+#if defined(CONFIG_SPIRAM_USE_MALLOC) && (MCP2515_SPI_DMA_CHAN != SPI_DMA_DISABLED)
+    #warning "⚠️ CRITICAL: PSRAM and SPI DMA both enabled!"
+    #warning "DMA cannot access PSRAM memory - will cause system crashes"
+    #warning "Fix: Set MCP2515_SPI_DMA_CHAN=SPI_DMA_DISABLED OR disable PSRAM in sdkconfig"
+    #warning "Or ensure all CAN frame buffers use heap_caps_malloc(MALLOC_CAP_DMA)"
+#endif
+
+// ===========================
 // Default ESP32 Pin Mappings (Variant-Specific)
 // ===========================
 
@@ -249,9 +260,14 @@
 #define MCP2515_ISR_TASK_STACK_SIZE 4096
 #endif
 
-/** Task core affinity (tskNO_AFFINITY for any core, 0 or 1 for specific core) */
+/**
+ * Task core affinity (tskNO_AFFINITY for any core, 0 or 1 for specific core)
+ * Core 0: WiFi/BLE stack (higher priority system tasks)
+ * Core 1: Application tasks (CAN processing recommended)
+ * Pinning to Core 1 provides deterministic latency and prevents task migration overhead
+ */
 #ifndef MCP2515_ISR_TASK_CORE
-#define MCP2515_ISR_TASK_CORE   tskNO_AFFINITY
+#define MCP2515_ISR_TASK_CORE   1  // Pin to Core 1 for deterministic performance
 #endif
 
 // ===========================
@@ -283,15 +299,15 @@
 // Power Management
 // ===========================
 
-/** Enable ESP32 power management integration */
-#ifndef MCP2515_USE_POWER_MGMT
-#define MCP2515_USE_POWER_MGMT  1
-#endif
-
-/** Acquire power lock during active operations */
-#ifndef MCP2515_USE_PM_LOCKS
-#define MCP2515_USE_PM_LOCKS    1
-#endif
+// TODO: Power management integration planned for future release
+// Will include:
+// - esp_pm_lock_acquire/release during active SPI operations
+// - Automatic light sleep between CAN frames
+// - Wake-on-CAN support for deep sleep mode
+// - CPU frequency scaling protection during SPI transactions
+//
+// Current status: Not implemented
+// For manual power management integration, see README documentation
 
 // ===========================
 // Logging Configuration
