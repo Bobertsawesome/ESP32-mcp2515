@@ -539,9 +539,11 @@ MCP2515::ERROR MCP2515::setMode(const CANCTRL_REQOP_MODE mode)
 {
     modifyRegister(MCP_CANCTRL, CANCTRL_REQOP | CANCTRL_OSM, mode);
 
-    unsigned long endTime = millis() + 10;
+    // Use delta-time pattern to prevent infinite loop when millis() overflows at 49.7 days
+    unsigned long startTime = millis();
+    const unsigned long timeout_ms = 10;
     bool modeMatch = false;
-    while (millis() < endTime) {
+    while ((millis() - startTime) < timeout_ms) {
         uint8_t newmode = readRegister(MCP_CANSTAT);
         newmode &= CANSTAT_OPMOD;
 
@@ -957,6 +959,11 @@ MCP2515::ERROR MCP2515::setFilter(const RXF num, const bool ext, const uint32_t 
 
 MCP2515::ERROR MCP2515::sendMessage(const TXBn txbn, const struct can_frame *frame)
 {
+    // Validate frame pointer to prevent crash on null dereference
+    if (frame == nullptr) {
+        return ERROR_FAILTX;
+    }
+
     if (frame->can_dlc > CAN_MAX_DLEN) {
         return ERROR_FAILTX;
     }
@@ -975,7 +982,32 @@ MCP2515::ERROR MCP2515::sendMessage(const TXBn txbn, const struct can_frame *fra
 
     memcpy(&data[MCP_DATA], frame->data, frame->can_dlc);
 
-    setRegisters(txbuf->SIDH, data, 5 + frame->can_dlc);
+    // Use optimized LOAD TX BUFFER instruction (saves 1 SPI byte vs standard WRITE)
+    uint8_t load_instruction;
+    switch (txbn) {
+        case TXB0: load_instruction = INSTRUCTION_LOAD_TX0; break;
+        case TXB1: load_instruction = INSTRUCTION_LOAD_TX1; break;
+        case TXB2: load_instruction = INSTRUCTION_LOAD_TX2; break;
+        default: return ERROR_FAILTX;
+    }
+
+#ifdef ESP32
+    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in sendMessage");
+        return ERROR_FAILTX;
+    }
+#endif
+
+    startSPI();
+    SPI_TRANSFER(load_instruction);  // Points to TXBnSIDH, no address byte needed
+    for (uint8_t i = 0; i < (5 + frame->can_dlc); i++) {
+        SPI_TRANSFER(data[i]);
+    }
+    endSPI();
+
+#ifdef ESP32
+    releaseMutex();
+#endif
 
     modifyRegister(txbuf->CTRL, TXB_TXREQ, TXB_TXREQ);
 
@@ -999,6 +1031,11 @@ MCP2515::ERROR MCP2515::sendMessage(const TXBn txbn, const struct can_frame *fra
 
 MCP2515::ERROR MCP2515::sendMessage(const struct can_frame *frame)
 {
+    // Validate frame pointer to prevent crash on null dereference
+    if (frame == nullptr) {
+        return ERROR_FAILTX;
+    }
+
     if (frame->can_dlc > CAN_MAX_DLEN) {
         return ERROR_FAILTX;
     }
@@ -1040,13 +1077,103 @@ MCP2515::ERROR MCP2515::sendMessage(const struct can_frame *frame)
     return result;
 }
 
+MCP2515::ERROR MCP2515::setTransmitPriority(const TXBn txbn, const uint8_t priority)
+{
+    // Validate priority (0-3, where 3 is highest)
+    if (priority > 3) {
+        return ERROR_FAIL;
+    }
+
+    const struct TXBn_REGS *txbuf = &TXB[txbn];
+
+    // Check that buffer is not currently transmitting
+    uint8_t ctrl = readRegister(txbuf->CTRL);
+    if (ctrl & TXB_TXREQ) {
+        return ERROR_FAIL;  // Cannot change priority while transmission is pending
+    }
+
+    // Set TXP[1:0] bits (bits 1:0 of TXBnCTRL)
+    modifyRegister(txbuf->CTRL, TXB_TXP, priority);
+
+    return ERROR_OK;
+}
+
+MCP2515::ERROR MCP2515::abortTransmission(const TXBn txbn)
+{
+    const struct TXBn_REGS *txbuf = &TXB[txbn];
+
+    // Clear the TXREQ bit to abort transmission
+    modifyRegister(txbuf->CTRL, TXB_TXREQ, 0);
+
+    // Check if abort was successful by reading ABTF flag
+    uint8_t ctrl = readRegister(txbuf->CTRL);
+    if (ctrl & TXB_ABTF) {
+        // Clear the abort flag
+        modifyRegister(txbuf->CTRL, TXB_ABTF, 0);
+    }
+
+    return ERROR_OK;
+}
+
+MCP2515::ERROR MCP2515::abortAllTransmissions(void)
+{
+    // Set ABAT bit in CANCTRL register to abort all pending transmissions
+    modifyRegister(MCP_CANCTRL, CANCTRL_ABAT, CANCTRL_ABAT);
+
+    // Wait for abort to complete (ABAT bit is automatically cleared by hardware)
+    // Use delta-time pattern to prevent infinite loop when millis() overflows at 49.7 days
+    unsigned long startTime = millis();
+    const unsigned long timeout_ms = 10;
+    while ((millis() - startTime) < timeout_ms) {
+        uint8_t ctrl = readRegister(MCP_CANCTRL);
+        if ((ctrl & CANCTRL_ABAT) == 0) {
+            break;  // Abort completed
+        }
+    }
+
+    // Clear any abort flags in TX buffers
+    for (int i = 0; i < N_TXBUFFERS; i++) {
+        const struct TXBn_REGS *txbuf = &TXB[i];
+        uint8_t ctrl = readRegister(txbuf->CTRL);
+        if (ctrl & TXB_ABTF) {
+            modifyRegister(txbuf->CTRL, TXB_ABTF, 0);
+        }
+    }
+
+    return ERROR_OK;
+}
+
 MCP2515::ERROR MCP2515::readMessage(const RXBn rxbn, struct can_frame *frame)
 {
+    // Validate frame pointer to prevent crash on null dereference
+    if (frame == nullptr) {
+        return ERROR_FAIL;
+    }
+
     const struct RXBn_REGS *rxb = &RXB[rxbn];
 
     uint8_t tbufdata[5];
 
-    readRegisters(rxb->SIDH, tbufdata, 5);
+    // Use optimized READ RX BUFFER instruction (saves 1 SPI byte vs standard READ)
+    // INSTRUCTION_READ_RX0 (0x90) for RXB0, INSTRUCTION_READ_RX1 (0x94) for RXB1
+#ifdef ESP32
+    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in readMessage");
+        return ERROR_FAIL;
+    }
+#endif
+
+    startSPI();
+    SPI_TRANSFER(rxbn == RXB0 ? INSTRUCTION_READ_RX0 : INSTRUCTION_READ_RX1);
+    // MCP2515 auto-increments address pointer
+    for (uint8_t i = 0; i < 5; i++) {
+        tbufdata[i] = SPI_TRANSFER(0x00);
+    }
+    endSPI();
+
+#ifdef ESP32
+    releaseMutex();
+#endif
 
     uint32_t id = (tbufdata[MCP_SIDH]<<3) + (tbufdata[MCP_SIDL]>>5);
 
@@ -1070,7 +1197,26 @@ MCP2515::ERROR MCP2515::readMessage(const RXBn rxbn, struct can_frame *frame)
     frame->can_id = id;
     frame->can_dlc = dlc;
 
-    readRegisters(rxb->DATA, frame->data, dlc);
+    // Read data bytes using optimized READ RX BUFFER command starting at D0
+    // This is a separate SPI transaction starting at the data field
+#ifdef ESP32
+    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
+        ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in readMessage (data)");
+        return ERROR_FAIL;
+    }
+#endif
+
+    startSPI();
+    // Use 0x92 for RXB0 data, 0x96 for RXB1 data (starts at D0)
+    SPI_TRANSFER((rxbn == RXB0 ? INSTRUCTION_READ_RX0 : INSTRUCTION_READ_RX1) | 0x02);
+    for (uint8_t i = 0; i < dlc; i++) {
+        frame->data[i] = SPI_TRANSFER(0x00);
+    }
+    endSPI();
+
+#ifdef ESP32
+    releaseMutex();
+#endif
 
     modifyRegister(MCP_CANINTF, rxb->CANINTF_RXnIF, 0);
 
@@ -1079,6 +1225,11 @@ MCP2515::ERROR MCP2515::readMessage(const RXBn rxbn, struct can_frame *frame)
 
 MCP2515::ERROR MCP2515::readMessage(struct can_frame *frame)
 {
+    // Validate frame pointer to prevent crash on null dereference
+    if (frame == nullptr) {
+        return ERROR_NOMSG;
+    }
+
     ERROR rc;
     uint8_t stat = getStatus();
 
@@ -1091,6 +1242,21 @@ MCP2515::ERROR MCP2515::readMessage(struct can_frame *frame)
     }
 
     return rc;
+}
+
+uint8_t MCP2515::getFilterHit(const RXBn rxbn)
+{
+    const struct RXBn_REGS *rxb = &RXB[rxbn];
+    uint8_t ctrl = readRegister(rxb->CTRL);
+
+    // Extract FILHIT bits from RXBnCTRL register
+    // RXB0: FILHIT[1:0] in bits [1:0] - indicates filters 0-1 (or rollover from RXB1)
+    // RXB1: FILHIT[2:0] in bits [2:0] - indicates filters 3-5
+    if (rxbn == RXB0) {
+        return (ctrl & RXB0CTRL_FILHIT_MASK);  // Returns 0-3
+    } else {
+        return (ctrl & RXB1CTRL_FILHIT_MASK);  // Returns 0-7, typically 3-5
+    }
 }
 
 bool MCP2515::checkReceive(void)
@@ -1423,6 +1589,11 @@ void MCP2515::releaseMutex()
 
 MCP2515::ERROR MCP2515::readMessageQueued(struct can_frame *frame, uint32_t timeout_ms)
 {
+    // Validate frame pointer to prevent crash on null dereference
+    if (frame == nullptr) {
+        return ERROR_NOMSG;
+    }
+
     if (!use_interrupts || rx_queue == NULL) {
         // Fall back to polling
         return readMessage(frame);
@@ -1448,7 +1619,10 @@ uint32_t MCP2515::getRxQueueCount(void)
 void MCP2515::getStatistics(mcp2515_statistics_t* stats)
 {
     if (stats != NULL) {
+        // Use spinlock to prevent torn reads from ISR task on dual-core ESP32
+        portENTER_CRITICAL(&statistics_mutex);
         memcpy(stats, &statistics, sizeof(mcp2515_statistics_t));
+        portEXIT_CRITICAL(&statistics_mutex);
     }
 }
 
@@ -1479,11 +1653,8 @@ MCP2515::ERROR MCP2515::performErrorRecovery(void)
 {
     ESP_LOGW(MCP2515_LOG_TAG, "Performing error recovery");
 
-    // Get error counts
-    uint8_t rec = errorCountRX();
-    uint8_t tec = errorCountTX();
-
-    ESP_LOGI(MCP2515_LOG_TAG, "Error counts - RX: %d, TX: %d", rec, tec);
+    // Get error counts and log them (call functions directly to avoid unused variable warnings)
+    ESP_LOGI(MCP2515_LOG_TAG, "Error counts - RX: %d, TX: %d", errorCountRX(), errorCountTX());
 
     // Clear all error flags
     clearRXnOVR();

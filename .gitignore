@@ -19,3 +19,10 @@
 
 # Arduino build directory
 build/
+
+# PlatformIO build artifacts
+.pio/
+.pioenvs/
+.piolibdeps/
+lib/MCP2515/
+test_build/

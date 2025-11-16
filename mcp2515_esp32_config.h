@@ -230,9 +230,13 @@
 #define MCP2515_RX_QUEUE_SIZE   32
 #endif
 
-/** Mutex timeout in FreeRTOS ticks */
+/**
+ * Mutex timeout in FreeRTOS ticks
+ * Reduced from 100ms to 10ms to catch deadlocks faster and prevent RX queue overflow.
+ * Worst-case SPI transaction is ~1ms, so 10ms is generous but won't mask bugs.
+ */
 #ifndef MCP2515_MUTEX_TIMEOUT
-#define MCP2515_MUTEX_TIMEOUT   pdMS_TO_TICKS(100)
+#define MCP2515_MUTEX_TIMEOUT   pdMS_TO_TICKS(10)
 #endif
 
 /** Task priority for interrupt handling task */

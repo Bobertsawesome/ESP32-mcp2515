@@ -39,6 +39,7 @@
         #include <esp_log.h>
         #include <string.h>
     #endif
+    #include <atomic>  // For atomic shutdown flag
 #else
     #include <SPI.h>
 #endif
@@ -548,7 +549,7 @@ class MCP2515
         portMUX_TYPE        statistics_mutex; ///< Spinlock for statistics protection
         bool                initialized;    ///< Initialization status
         bool                use_interrupts; ///< Interrupt mode enabled
-        volatile bool       shutdown_requested; ///< Flag to signal ISR task to stop
+        std::atomic<bool>   shutdown_requested; ///< Flag to signal ISR task to stop (atomic for dual-core safety)
 #endif
 
     private:
@@ -631,8 +632,12 @@ class MCP2515
         ERROR setFilter(const RXF num, const bool ext, const uint32_t ulData);
         ERROR sendMessage(const TXBn txbn, const struct can_frame *frame);
         ERROR sendMessage(const struct can_frame *frame);
+        ERROR setTransmitPriority(const TXBn txbn, const uint8_t priority);
+        ERROR abortTransmission(const TXBn txbn);
+        ERROR abortAllTransmissions(void);
         ERROR readMessage(const RXBn rxbn, struct can_frame *frame);
         ERROR readMessage(struct can_frame *frame);
+        uint8_t getFilterHit(const RXBn rxbn);
         bool checkReceive(void);
         bool checkError(void);
         uint8_t getErrorFlags(void);
