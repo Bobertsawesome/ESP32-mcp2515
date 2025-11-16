@@ -1,3 +1,6 @@
+- Commit all changes, make sure to do so when logical categories of changes have been made. Push to github default branch after doing so.
+- All created documentation files MUST go into @Documentation/ folder unless README.md or github information meant for the repo
+
 # CLAUDE.md - AI Assistant Guide for ESP32-mcp2515
 
 ## Project Overview
@@ -13,6 +16,7 @@
 ## Documentation Index
 
 **Core Documentation:**
+
 - `CLAUDE.md` (this file) - Project overview and development guide
 - `Documentation/MCP2515.md` - Complete MCP2515 datasheet reference
 - `Documentation/DATASHEET_COMPLIANCE_ANALYSIS.md` - Library compliance analysis
@@ -29,6 +33,7 @@ This is a production-hardened Arduino library for interfacing with the MCP2515 C
 ### Platform Support
 
 **Verified Compatible Platforms (Build-Tested):**
+
 - **ESP32 Classic** (Dual-core Xtensa LX6 @ 240MHz)
 - **ESP32-S2** (Single-core Xtensa LX7 @ 240MHz)
 - **ESP32-S3** (Dual-core Xtensa LX7 @ 240MHz)
@@ -131,24 +136,30 @@ ESP32-mcp2515/
 **Constructors (Platform-Specific):**
 
 **Arduino AVR Constructor:**
+
 ```cpp
 MCP2515(const uint8_t _CS, const uint32_t _SPI_CLOCK = 10000000, SPIClass * _SPI = nullptr)
 ```
+
 - `_CS`: SPI chip select pin number
 - `_SPI_CLOCK`: SPI clock speed (default 10 MHz)
 - `_SPI`: Optional custom SPI interface (for multi-SPI boards)
 
 **ESP32 Simplified Constructor:**
+
 ```cpp
 MCP2515(gpio_num_t cs_pin, gpio_num_t int_pin = GPIO_NUM_NC)
 ```
+
 - `cs_pin`: Chip select GPIO pin
 - `int_pin`: Interrupt GPIO pin (optional, GPIO_NUM_NC to disable)
 
 **ESP32 Advanced Constructor:**
+
 ```cpp
 MCP2515(const mcp2515_esp32_config_t* config)
 ```
+
 - `config`: Full ESP32 configuration structure with FreeRTOS settings
 
 ### Operating Modes
@@ -175,6 +186,7 @@ struct can_frame {
 ```
 
 **CAN ID Layout** (32 bits):
+
 - Bit 0-28: CAN identifier (11 or 29 bits depending on frame type)
 - Bit 29: Error frame flag (`CAN_ERR_FLAG`)
 - Bit 30: Remote Transmission Request (`CAN_RTR_FLAG`)
@@ -183,6 +195,7 @@ struct can_frame {
 ### Error Handling
 
 All major operations return `MCP2515::ERROR` enum:
+
 - `ERROR_OK` (0): Success
 - `ERROR_FAIL` (1): General failure
 - `ERROR_ALLTXBUSY` (2): All transmit buffers busy
@@ -196,6 +209,7 @@ All major operations return `MCP2515::ERROR` enum:
 ### Hardware Abstraction
 
 The library abstracts SPI communication through:
+
 - `startSPI()`: Begin SPI transaction with chip select
 - `endSPI()`: End SPI transaction
 - `readRegister()`: Read single MCP2515 register
@@ -209,6 +223,7 @@ The library abstracts SPI communication through:
 ### Coding Style
 
 1. **Naming Conventions**:
+
    - Classes: PascalCase (e.g., `MCP2515`)
    - Enums: UPPER_CASE (e.g., `CAN_SPEED`, `CANINTF`)
    - Constants: UPPER_CASE with underscores (e.g., `CAN_MAX_DLC`)
@@ -216,6 +231,7 @@ The library abstracts SPI communication through:
    - Public methods: camelCase (e.g., `setBitrate`, `sendMessage`)
 
 2. **Register Definitions**:
+
    - Configuration registers use prefix `MCP_` (e.g., `MCP_CNF1`, `MCP_CANCTRL`)
    - Bitrate configs use pattern: `MCP_<CLOCK>_<SPEED>_CFG<N>` (e.g., `MCP_16MHz_125kBPS_CFG1`)
 
@@ -230,6 +246,7 @@ The library abstracts SPI communication through:
 ### Arduino Library Standards
 
 The library follows Arduino Library Specification 1.5:
+
 - `library.properties`: Contains metadata (name, version, author, etc.)
 - `keywords.txt`: Defines syntax highlighting for Arduino IDE
 - `examples/`: Contains `.ino` sketch files in subdirectories
@@ -246,6 +263,7 @@ When adding support for a new bitrate or clock frequency:
 **Location**: `mcp2515.h` lines 8-174
 
 **Pattern**:
+
 ```cpp
 #define MCP_<CLOCK>MHz_<SPEED>kBPS_CFG1 (0xXX)
 #define MCP_<CLOCK>MHz_<SPEED>kBPS_CFG2 (0xXX)
@@ -259,6 +277,7 @@ When adding support for a new bitrate or clock frequency:
 ### 2. Adding New Operating Modes
 
 **Existing modes** (see `mcp2515.h:275-283`):
+
 - `CANCTRL_REQOP_NORMAL`
 - `CANCTRL_REQOP_LOOPBACK`
 - `CANCTRL_REQOP_LISTENONLY`
@@ -266,6 +285,7 @@ When adding support for a new bitrate or clock frequency:
 - `CANCTRL_REQOP_OSM` (One-Shot Mode)
 
 **To add new mode**:
+
 1. Add enum value in `CANCTRL_REQOP_MODE`
 2. Create public method: `ERROR set<Mode>Mode()`
 3. Implement using `setMode(CANCTRL_REQOP_<MODE>)`
@@ -273,10 +293,12 @@ When adding support for a new bitrate or clock frequency:
 ### 3. Extending Filter/Mask Functionality
 
 **Current implementation**:
+
 - `setFilterMask(MASK num, bool ext, uint32_t ulData)`
 - `setFilter(RXF num, bool ext, uint32_t ulData)`
 
 **Key considerations**:
+
 - Filters are applied during initialization in `reset()` (mcp2515.cpp:72-87)
 - Default: Accept all frames (masks set to 0)
 - `ext` parameter: `false` for standard (11-bit), `true` for extended (29-bit)
@@ -285,6 +307,7 @@ When adding support for a new bitrate or clock frequency:
 ### 4. Modifying Examples
 
 **Guidelines**:
+
 - Keep examples simple and focused on one concept
 - Use Serial at 115200 baud for consistency
 - Include `while (!Serial);` for boards with USB-Serial
@@ -292,6 +315,7 @@ When adding support for a new bitrate or clock frequency:
 - Use descriptive CAN IDs (avoid 0x000 in production)
 
 **Example template**:
+
 ```cpp
 #include <SPI.h>
 #include <mcp2515.h>
@@ -313,12 +337,14 @@ void loop() {
 ### 5. Testing Changes
 
 **Manual Testing**:
+
 - Use two Arduino boards with MCP2515 modules
 - One as sender (CAN_write example), one as receiver (CAN_read example)
 - Connect CAN_H, CAN_L, and GND between modules
 - Add 120Ω termination resistors at both ends of CAN bus
 
 **Travis CI**:
+
 - Automatic build testing on commit/PR
 - Tests compilation for multiple Arduino platforms
 - Located in `.travis.yml`
@@ -330,11 +356,13 @@ void loop() {
 ### SPI Communication Protocol
 
 The MCP2515 uses SPI Mode 0 (CPOL=0, CPHA=0):
+
 - Data sampled on rising edge, shifted on falling edge
 - MSB first
 - Maximum SPI clock: 10 MHz
 
 **Key SPI Instructions**:
+
 - `INSTRUCTION_RESET` (0xC0): Software reset
 - `INSTRUCTION_READ` (0x03): Read register
 - `INSTRUCTION_WRITE` (0x02): Write register
@@ -351,10 +379,12 @@ The MCP2515 uses SPI Mode 0 (CPOL=0, CPHA=0):
 ### Memory Layout
 
 **TX Buffers** (`N_TXBUFFERS = 3`):
+
 - Each has control register, ID registers, DLC, and 8 data bytes
 - Can be loaded and triggered independently
 
 **RX Buffers** (`N_RXBUFFERS = 2`):
+
 - RXB0 has higher priority than RXB1
 - RXB0 can rollover to RXB1 if full (`RXB0CTRL_BUKT` bit)
 
@@ -363,6 +393,7 @@ The MCP2515 uses SPI Mode 0 (CPOL=0, CPHA=0):
 The MCP2515 supports interrupt-driven reception:
 
 **Interrupt flags** (see `mcp2515.h:246-255`):
+
 - `CANINTF_RX0IF`: Message in RXB0
 - `CANINTF_RX1IF`: Message in RXB1
 - `CANINTF_TX0IF/1IF/2IF`: Transmission complete
@@ -371,6 +402,7 @@ The MCP2515 supports interrupt-driven reception:
 - `CANINTF_MERRF`: Message error interrupt
 
 **Methods**:
+
 - `getInterrupts()`: Read interrupt flags
 - `clearInterrupts()`: Clear all interrupt flags
 - `clearTXInterrupts()`: Clear TX interrupt flags only
@@ -408,6 +440,7 @@ A: One-Shot mode doesn't retry failed transmissions (useful for time-critical da
 ### Code Review Checklist
 
 When reviewing changes:
+
 - [ ] Verify register addresses against MCP2515 datasheet
 - [ ] Check for proper error handling (return `ERROR` enum)
 - [ ] Ensure SPI transactions are wrapped in `startSPI()`/`endSPI()`
@@ -432,17 +465,20 @@ When reviewing changes:
 ### Common Issues
 
 1. **"ERROR_FAILINIT"**:
+
    - Check SPI wiring (MISO, MOSI, SCK, CS)
    - Verify oscillator frequency matches code (8/16/20 MHz)
    - Check power supply (MCP2515 requires stable 5V or 3.3V)
 
 2. **"ERROR_ALLTXBUSY"**:
+
    - No acknowledgment from other CAN node
    - Check CAN_H, CAN_L connections
    - Verify termination resistors (120Ω at both ends)
    - Confirm matching bitrate on all nodes
 
 3. **Messages not received**:
+
    - Check filters/masks configuration
    - Verify bitrate matches sender
    - Ensure transceiver (MCP2551/2562/TJA1055) is powered
@@ -540,6 +576,7 @@ This is an active open-source project welcoming contributions:
 ## Quick Reference: Essential Functions
 
 ### Initialization
+
 ```cpp
 MCP2515 mcp2515(CS_PIN);
 mcp2515.reset();
@@ -548,6 +585,7 @@ mcp2515.setNormalMode();
 ```
 
 ### Sending
+
 ```cpp
 struct can_frame frame;
 frame.can_id = 0x123;
@@ -558,6 +596,7 @@ mcp2515.sendMessage(&frame);
 ```
 
 ### Receiving (Polling)
+
 ```cpp
 struct can_frame frame;
 if (mcp2515.readMessage(&frame) == MCP2515::ERROR_OK) {
@@ -566,6 +605,7 @@ if (mcp2515.readMessage(&frame) == MCP2515::ERROR_OK) {
 ```
 
 ### Receiving (Interrupt)
+
 ```cpp
 void irqHandler() { /* set flag */ }
 attachInterrupt(digitalPinToInterrupt(INT_PIN), irqHandler, FALLING);
@@ -579,6 +619,7 @@ if (interrupt_flag) {
 ```
 
 ### Transmit Priority Control
+
 ```cpp
 // Set message priority for a specific TX buffer (0-3, where 3 = highest)
 // Must be called before sending message on that buffer
@@ -591,6 +632,7 @@ mcp2515.setTransmitPriority(MCP2515::TXB2, 2);  // Medium priority
 ```
 
 ### Abort Transmission
+
 ```cpp
 // Abort transmission from specific buffer
 mcp2515.abortTransmission(MCP2515::TXB0);
@@ -600,6 +642,7 @@ mcp2515.abortAllTransmissions();
 ```
 
 ### Filter Hit Reporting
+
 ```cpp
 // Determine which acceptance filter matched the received message
 struct can_frame frame;
@@ -613,6 +656,7 @@ if (mcp2515.readMessage(MCP2515::RXB0, &frame) == MCP2515::ERROR_OK) {
 ### Performance Optimizations
 
 The library automatically uses optimized SPI instructions for better performance:
+
 - **READ RX BUFFER** instruction (0x90/0x94): Saves 1 byte per RX operation, 10-15% faster reception
 - **LOAD TX BUFFER** instruction (0x40/0x42/0x44): Saves 1 byte per TX operation, 5-10% faster transmission
 
