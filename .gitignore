@@ -26,3 +26,6 @@ build/
 .piolibdeps/
 lib/MCP2515/
 test_build/
+
+# Build verification logs
+*.log

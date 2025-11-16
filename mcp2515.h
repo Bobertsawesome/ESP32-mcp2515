@@ -246,6 +246,7 @@ enum CAN_CLKOUT {
     CLKOUT_DIV8 = 0x3,
 };
 
+#ifdef ESP32
 /**
  * @brief ESP32 GPIO pin configuration for MCP2515
  */
@@ -271,7 +272,6 @@ struct mcp2515_esp32_config_t {
     uint16_t isr_task_stack_size;       ///< Stack size for ISR task
 };
 
-#ifdef ESP32
 /**
  * @brief CAN frame statistics (ESP32 only)
  */

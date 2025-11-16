@@ -2,11 +2,13 @@
 
 ## Project Overview
 
-**Project Name**: autowp-mcp2515
-**Version**: 2.0.1-ESP32
+**Project Name**: ESP32-MCP2515
+**Version**: 2.1.0-ESP32
 **License**: MIT License
-**Repository**: https://github.com/autowp/arduino-mcp2515
-**Maintainer**: autowp <autowp@gmail.com>
+**Repository**: https://github.com/Bobertsawesome/ESP32-mcp2515
+**Original Repository**: https://github.com/autowp/arduino-mcp2515
+**Maintainer**: Bobertsawesome, ESP32-MCP2515 Contributors
+**Original Author**: autowp <autowp@gmail.com>
 
 ## Documentation Index
 
@@ -14,13 +16,27 @@
 - `CLAUDE.md` (this file) - Project overview and development guide
 - `Documentation/MCP2515.md` - Complete MCP2515 datasheet reference
 - `Documentation/DATASHEET_COMPLIANCE_ANALYSIS.md` - Library compliance analysis
+- `Documentation/ESP32_COMPREHENSIVE_AUDIT_2025-11-15.md` - ESP32-specific comprehensive audit
 - `Documentation/PRODUCTION_CRITICAL_FIXES_2025-11-15.md` - Production bug fixes
-- `Documentation/PLATFORMIO_BUILD_REPORT.md` - Multi-platform build results
-- `Documentation/PLATFORMIO_BUILD_TESTING_GUIDE.md` - **Build automation guide for agent development**
+- `Documentation/PLATFORMIO_BUILD_TESTING_GUIDE.md` - Build automation guide for agent development
+- `BUILD_VERIFICATION_REPORT.md` - Multi-platform build verification (ESP32 + Arduino)
+- `EMBEDDED_SYSTEMS_AUDIT.md` - Embedded systems audit report
 
 ### Description
 
-This is an Arduino library for interfacing with the MCP2515 CAN (Controller Area Network) controller chip via SPI. The library provides CAN-BUS capability to Arduino/ESP32 boards, implementing CAN V2.0B protocol at speeds up to 1 Mb/s. It's commonly used for automotive diagnostics (OBD-II), industrial automation, and embedded systems communication.
+This is a production-hardened Arduino library for interfacing with the MCP2515 CAN (Controller Area Network) controller chip via SPI. The library provides CAN-BUS capability to both ESP32 and Arduino AVR boards, implementing CAN V2.0B protocol at speeds up to 1 Mb/s. It's commonly used for automotive diagnostics (OBD-II), industrial automation, and embedded systems communication.
+
+### Platform Support
+
+**Verified Compatible Platforms (Build-Tested):**
+- **ESP32 Classic** (Dual-core Xtensa LX6 @ 240MHz)
+- **ESP32-S2** (Single-core Xtensa LX7 @ 240MHz)
+- **ESP32-S3** (Dual-core Xtensa LX7 @ 240MHz)
+- **ESP32-C3** (Single-core RISC-V @ 160MHz)
+- **Arduino Uno** (ATmega328P @ 16MHz)
+- **Arduino Mega2560** (ATmega2560 @ 16MHz)
+
+The library intelligently adapts to each platform, providing ESP32-specific features (FreeRTOS integration, interrupt-driven reception, statistics) when available, while maintaining core CAN functionality on all platforms.
 
 ### Key Features
 
@@ -41,21 +57,41 @@ This is an Arduino library for interfacing with the MCP2515 CAN (Controller Area
 
 ```
 ESP32-mcp2515/
-├── mcp2515.h           # Main MCP2515 driver class header
-├── mcp2515.cpp         # Main MCP2515 driver implementation
-├── can.h               # CAN frame structures and constants (Linux SocketCAN compatible)
-├── library.properties  # Arduino library metadata
-├── keywords.txt        # Arduino IDE syntax highlighting keywords
-├── README.md           # User documentation
-├── LICENSE.md          # MIT License
-├── .travis.yml         # Travis CI configuration
-├── examples/           # Example Arduino sketches
-│   ├── CAN_read/       # Basic CAN frame reception example
-│   ├── CAN_write/      # Basic CAN frame transmission example
-│   ├── CAN_SpeedTest/  # Performance testing example
-│   ├── wiring.png      # MCP2515 shield wiring diagram
-│   └── wiring-diy.png  # DIY MCP2515 wiring diagram
-└── .settings/          # Eclipse project settings
+├── mcp2515.h                  # Main MCP2515 driver class header
+├── mcp2515.cpp                # Main MCP2515 driver implementation
+├── mcp2515_esp32_config.h     # ESP32-specific configuration
+├── can.h                      # CAN frame structures (Linux SocketCAN compatible)
+├── library.properties         # Arduino library metadata
+├── keywords.txt               # Arduino IDE syntax highlighting keywords
+├── platformio.ini             # PlatformIO multi-platform build configuration
+├── README.md                  # User documentation
+├── CLAUDE.md                  # AI assistant development guide (this file)
+├── LICENSE.md                 # MIT License
+├── BUILD_VERIFICATION_REPORT.md # Multi-platform build results
+├── EMBEDDED_SYSTEMS_AUDIT.md  # Embedded systems audit
+├── lib/                       # PlatformIO library directory
+│   └── MCP2515/              # Library source for PlatformIO
+│       ├── mcp2515.h
+│       ├── mcp2515.cpp
+│       ├── mcp2515_esp32_config.h
+│       └── can.h
+├── test_build/                # PlatformIO test build directory
+│   └── main.cpp              # Comprehensive API compilation test
+├── examples/                  # Example Arduino sketches
+│   ├── CAN_read/             # Basic CAN frame reception example
+│   ├── CAN_write/            # Basic CAN frame transmission example
+│   ├── CAN_SpeedTest/        # Performance testing example
+│   ├── ESP32_CAN_comprehensive_test/ # ESP32-specific comprehensive test
+│   ├── wiring.png            # MCP2515 shield wiring diagram
+│   └── wiring-diy.png        # DIY MCP2515 wiring diagram
+├── Documentation/             # Technical documentation
+│   ├── MCP2515.md            # MCP2515 datasheet reference
+│   ├── DATASHEET_COMPLIANCE_ANALYSIS.md
+│   ├── ESP32_COMPREHENSIVE_AUDIT_2025-11-15.md
+│   ├── PRODUCTION_CRITICAL_FIXES_2025-11-15.md
+│   └── PLATFORMIO_BUILD_TESTING_GUIDE.md
+└── Tests/                     # Test suite
+    └── README.md
 ```
 
 ### Core Files
@@ -92,13 +128,28 @@ ESP32-mcp2515/
 
 **Main Class**: `MCP2515`
 
-**Constructor**:
+**Constructors (Platform-Specific):**
+
+**Arduino AVR Constructor:**
 ```cpp
 MCP2515(const uint8_t _CS, const uint32_t _SPI_CLOCK = 10000000, SPIClass * _SPI = nullptr)
 ```
 - `_CS`: SPI chip select pin number
 - `_SPI_CLOCK`: SPI clock speed (default 10 MHz)
 - `_SPI`: Optional custom SPI interface (for multi-SPI boards)
+
+**ESP32 Simplified Constructor:**
+```cpp
+MCP2515(gpio_num_t cs_pin, gpio_num_t int_pin = GPIO_NUM_NC)
+```
+- `cs_pin`: Chip select GPIO pin
+- `int_pin`: Interrupt GPIO pin (optional, GPIO_NUM_NC to disable)
+
+**ESP32 Advanced Constructor:**
+```cpp
+MCP2515(const mcp2515_esp32_config_t* config)
+```
+- `config`: Full ESP32 configuration structure with FreeRTOS settings
 
 ### Operating Modes
 
@@ -132,12 +183,15 @@ struct can_frame {
 ### Error Handling
 
 All major operations return `MCP2515::ERROR` enum:
-- `ERROR_OK`: Success
-- `ERROR_FAIL`: General failure
-- `ERROR_ALLTXBUSY`: All transmit buffers busy
-- `ERROR_FAILINIT`: Initialization failed
-- `ERROR_FAILTX`: Transmission failed
-- `ERROR_NOMSG`: No message available
+- `ERROR_OK` (0): Success
+- `ERROR_FAIL` (1): General failure
+- `ERROR_ALLTXBUSY` (2): All transmit buffers busy
+- `ERROR_FAILINIT` (3): Initialization failed
+- `ERROR_FAILTX` (4): Transmission failed
+- `ERROR_NOMSG` (5): No message available
+- `ERROR_TIMEOUT` (6): Timeout error (ESP32)
+- `ERROR_MUTEX` (7): Mutex acquisition failed (ESP32)
+- `ERROR_PSRAM` (8): PSRAM+DMA conflict detected (ESP32)
 
 ### Hardware Abstraction
 
@@ -442,6 +496,18 @@ Serial.print("TX errors: "); Serial.println(mcp2515.errorCountTX());
 
 ## Version History (Recent)
 
+- **2.1.0-ESP32** (2025-11-15): BREAKING CHANGES - Production hardening and multi-platform support
+  - **BREAKING**: Changed 4 functions from void→ERROR return type for explicit failure detection
+  - **BREAKING**: Added ERROR_MUTEX (7) and ERROR_PSRAM (8) error codes
+  - Added IRAM_ATTR to 14 functions for flash-safe ISR execution
+  - Pinned ISR task to Core 1 for predictable performance
+  - Added comprehensive PSRAM safety checks (prevents DMA+PSRAM crashes)
+  - Verified multi-platform build support:
+    - ESP32 Classic, ESP32-S2, ESP32-S3, ESP32-C3
+    - Arduino Uno, Arduino Mega2560
+  - Platform-specific conditional compilation
+  - Updated ~30 caller sites with proper error checking
+  - Comprehensive embedded systems audit completed
 - **2.0.0-ESP32** (2025-11-15): Performance and feature enhancements
   - Added SPI optimization using READ RX BUFFER instruction (10-15% faster reception)
   - Added SPI optimization using LOAD TX BUFFER instruction (5-10% faster transmission)
@@ -555,5 +621,6 @@ These optimizations are transparent to the user and work with existing code.
 ---
 
 **Last Updated**: 2025-11-15
-**Document Version**: 1.1
-**For Library Version**: 2.0.0-ESP32
+**Document Version**: 2.0
+**For Library Version**: 2.1.0-ESP32
+**Platforms Verified**: ESP32 (Classic/S2/S3/C3), Arduino (Uno/Mega2560)
