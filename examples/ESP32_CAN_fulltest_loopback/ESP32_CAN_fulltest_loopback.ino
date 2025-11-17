@@ -298,6 +298,42 @@ void print_frame(const struct can_frame* frame, const char* label) {
     safe_printf("\n");
 }
 
+// Comprehensive buffer draining - clears hardware RX buffers AND software RX queue
+void drain_all_rx_buffers() {
+    // Clear interrupt flags first
+    can->clearInterrupts();
+    delay(50);  // Allow in-flight messages to settle
+
+    // Drain software RX queue (ESP32 FreeRTOS queue)
+    struct can_frame dummy;
+    uint32_t drained_queue = 0;
+    while (can->readMessageQueued(&dummy, 0) == MCP2515::ERROR_OK) {
+        drained_queue++;
+        if (drained_queue > 100) break;  // Safety limit
+    }
+
+    // Drain hardware RX buffers multiple times to catch late arrivals
+    uint32_t drained_hw = 0;
+    for (int attempt = 0; attempt < 5; attempt++) {
+        while (can->readMessage(MCP2515::RXB0, &dummy) == MCP2515::ERROR_OK) {
+            drained_hw++;
+        }
+        while (can->readMessage(MCP2515::RXB1, &dummy) == MCP2515::ERROR_OK) {
+            drained_hw++;
+        }
+        delay(20);  // Wait for potential late arrivals
+    }
+
+    // Final cleanup - clear any remaining interrupt flags
+    can->clearInterrupts();
+    delay(20);
+
+    if (drained_queue > 0 || drained_hw > 0) {
+        safe_printf("%s[DEBUG]%s Drained %u queued + %u hardware frames%s\n",
+                   ANSI_YELLOW, ANSI_RESET, drained_queue, drained_hw, ANSI_RESET);
+    }
+}
+
 // ============================================================================
 // INITIALIZATION TESTS
 // ============================================================================
@@ -369,49 +405,136 @@ void test_bitrate_configuration(CAN_SPEED speed, CAN_CLOCK crystal) {
 void test_mode_switching() {
     print_header("MODE SWITCHING TESTS");
 
-    // Test each mode with proper delays AND validation
-    struct {
-        const char* name;
-        MCP2515::ERROR (*func)();
-        uint8_t expected_mode;  // Expected mode bits (CANSTAT >> 5)
-        const char* mode_name;
-    } modes[] = {
-        {"setLoopbackMode()", []() { return can->setLoopbackMode(); }, 0x02, "Loopback"},
-        {"setListenOnlyMode()", []() { return can->setListenOnlyMode(); }, 0x03, "Listen-Only"},
-        {"setNormalMode()", []() { return can->setNormalMode(); }, 0x00, "Normal"},
-        {"setNormalOneShotMode()", []() { return can->setNormalOneShotMode(); }, 0x00, "Normal One-Shot"},  // Same as normal in CANSTAT
-        {"setSleepMode()", []() { return can->setSleepMode(); }, 0x01, "Sleep"},
-        {"setConfigMode()", []() { return can->setConfigMode(); }, 0x04, "Configuration"}
-    };
-
-    for (int i = 0; i < 6; i++) {
-        print_subheader(modes[i].name);
-        MCP2515::ERROR err = modes[i].func();
-        delay(MODE_CHANGE_DELAY_MS);  // Allow mode to settle
-
-        if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-            safe_printf("%s[PASS]%s Mode function returned ERROR_OK%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
-            global_stats.record_pass();
-
-            // VALIDATION: Read back bus status to verify mode was actually entered
-            if (mcp2515_connected) {
-                uint8_t bus_status = can->getBusStatus();
-                uint8_t actual_mode = (bus_status >> 5) & 0x07;
-
-                if (actual_mode == modes[i].expected_mode) {
-                    safe_printf("%s[PASS]%s Mode verified: %s (0x%02X)%s\n",
-                               ANSI_GREEN, ANSI_RESET, modes[i].mode_name, actual_mode, ANSI_RESET);
-                    global_stats.record_pass();
-                } else {
-                    safe_printf("%s[FAIL]%s Mode mismatch: expected 0x%02X, got 0x%02X%s\n",
-                               ANSI_RED, ANSI_RESET, modes[i].expected_mode, actual_mode, ANSI_RESET);
-                    global_stats.record_fail();
-                }
+    // Test simple modes first
+    print_subheader("setLoopbackMode()");
+    MCP2515::ERROR err = can->setLoopbackMode();
+    delay(MODE_CHANGE_DELAY_MS);
+    if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
+        safe_printf("%s[PASS]%s Mode function returned ERROR_OK%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
+        global_stats.record_pass();
+        if (mcp2515_connected) {
+            uint8_t mode = (can->getBusStatus() >> 5) & 0x07;
+            if (mode == 0x02) {
+                safe_printf("%s[PASS]%s Mode verified: Loopback (0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
+                global_stats.record_pass();
+            } else {
+                safe_printf("%s[FAIL]%s Mode mismatch%s\n", ANSI_RED, ANSI_RESET, ANSI_RESET);
+                global_stats.record_fail();
             }
-        } else {
-            print_fail("Mode change failed");
-            global_stats.record_fail();
         }
+    } else {
+        print_fail("Mode change failed");
+        global_stats.record_fail();
+    }
+
+    print_subheader("setListenOnlyMode()");
+    err = can->setListenOnlyMode();
+    delay(MODE_CHANGE_DELAY_MS);
+    if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
+        safe_printf("%s[PASS]%s Mode function returned ERROR_OK%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
+        global_stats.record_pass();
+        if (mcp2515_connected) {
+            uint8_t mode = (can->getBusStatus() >> 5) & 0x07;
+            if (mode == 0x03) {
+                safe_printf("%s[PASS]%s Mode verified: Listen-Only (0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
+                global_stats.record_pass();
+            } else {
+                safe_printf("%s[FAIL]%s Mode mismatch%s\n", ANSI_RED, ANSI_RESET, ANSI_RESET);
+                global_stats.record_fail();
+            }
+        }
+    } else {
+        print_fail("Mode change failed");
+        global_stats.record_fail();
+    }
+
+    print_subheader("setNormalMode()");
+    err = can->setNormalMode();
+    delay(MODE_CHANGE_DELAY_MS);
+    if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
+        safe_printf("%s[PASS]%s Mode function returned ERROR_OK%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
+        global_stats.record_pass();
+        if (mcp2515_connected) {
+            uint8_t mode = (can->getBusStatus() >> 5) & 0x07;
+            if (mode == 0x00) {
+                safe_printf("%s[PASS]%s Mode verified: Normal (0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
+                global_stats.record_pass();
+            } else {
+                safe_printf("%s[FAIL]%s Mode mismatch%s\n", ANSI_RED, ANSI_RESET, ANSI_RESET);
+                global_stats.record_fail();
+            }
+        }
+    } else {
+        print_fail("Mode change failed");
+        global_stats.record_fail();
+    }
+
+    // One-shot and sleep modes require transitioning through normal mode first
+    print_subheader("setNormalOneShotMode()");
+    can->setNormalMode();  // Required transition
+    delay(MODE_CHANGE_DELAY_MS);
+    err = can->setNormalOneShotMode();
+    delay(MODE_CHANGE_DELAY_MS);
+    if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
+        safe_printf("%s[PASS]%s Mode function returned ERROR_OK%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
+        global_stats.record_pass();
+        if (mcp2515_connected) {
+            uint8_t mode = (can->getBusStatus() >> 5) & 0x07;
+            if (mode == 0x00) {  // One-shot shows as normal in CANSTAT
+                safe_printf("%s[PASS]%s Mode verified: Normal One-Shot (0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
+                global_stats.record_pass();
+            } else {
+                safe_printf("%s[FAIL]%s Mode mismatch%s\n", ANSI_RED, ANSI_RESET, ANSI_RESET);
+                global_stats.record_fail();
+            }
+        }
+    } else {
+        print_fail("Mode change failed");
+        global_stats.record_fail();
+    }
+
+    print_subheader("setSleepMode()");
+    can->setNormalMode();  // Required transition
+    delay(MODE_CHANGE_DELAY_MS);
+    err = can->setSleepMode();
+    delay(MODE_CHANGE_DELAY_MS);
+    if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
+        safe_printf("%s[PASS]%s Mode function returned ERROR_OK%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
+        global_stats.record_pass();
+        if (mcp2515_connected) {
+            uint8_t mode = (can->getBusStatus() >> 5) & 0x07;
+            if (mode == 0x01) {
+                safe_printf("%s[PASS]%s Mode verified: Sleep (0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
+                global_stats.record_pass();
+            } else {
+                safe_printf("%s[FAIL]%s Mode mismatch%s\n", ANSI_RED, ANSI_RESET, ANSI_RESET);
+                global_stats.record_fail();
+            }
+        }
+    } else {
+        print_fail("Mode change failed");
+        global_stats.record_fail();
+    }
+
+    print_subheader("setConfigMode()");
+    err = can->setConfigMode();
+    delay(MODE_CHANGE_DELAY_MS);
+    if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
+        safe_printf("%s[PASS]%s Mode function returned ERROR_OK%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
+        global_stats.record_pass();
+        if (mcp2515_connected) {
+            uint8_t mode = (can->getBusStatus() >> 5) & 0x07;
+            if (mode == 0x04) {
+                safe_printf("%s[PASS]%s Mode verified: Configuration (0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
+                global_stats.record_pass();
+            } else {
+                safe_printf("%s[FAIL]%s Mode mismatch%s\n", ANSI_RED, ANSI_RESET, ANSI_RESET);
+                global_stats.record_fail();
+            }
+        }
+    } else {
+        print_fail("Mode change failed");
+        global_stats.record_fail();
     }
 
     // Return to loopback mode for remaining tests
@@ -504,14 +627,8 @@ void test_filters_and_masks() {
         can->setLoopbackMode();
         delay(MODE_CHANGE_DELAY_MS);
 
-        // Clear interrupt flags and drain buffers
-        can->clearInterrupts();
-        delay(10);
-
-        // Drain any stale messages
-        struct can_frame dummy;
-        while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {}
-        delay(10);
+        // CRITICAL: Drain ALL buffers before test
+        drain_all_rx_buffers();
 
         // Test 1: Send matching ID (should be received)
         struct can_frame tx_frame;
@@ -521,7 +638,7 @@ void test_filters_and_masks() {
         tx_frame.data[1] = 0xBB;
 
         can->sendMessage(&tx_frame);
-        delay(50);
+        delay(100);  // Increased from 50ms - loopback needs more time
 
         struct can_frame rx_frame;
         MCP2515::ERROR err = can->readMessage(&rx_frame);
@@ -541,7 +658,7 @@ void test_filters_and_masks() {
         // Test 2: Send non-matching ID (should be rejected)
         tx_frame.can_id = 0x200;  // Does NOT match filter
         can->sendMessage(&tx_frame);
-        delay(50);
+        delay(100);  // Increased from 50ms
 
         err = can->readMessage(&rx_frame);
         if (err == MCP2515::ERROR_NOMSG) {
@@ -575,11 +692,8 @@ void test_filters_and_masks() {
 void test_transmission(uint32_t settle_time_ms) {
     print_header("TRANSMISSION TESTS");
 
-    // Clear interrupt flags and drain RX buffers
-    can->clearInterrupts();
-    struct can_frame dummy;
-    while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {}
-    delay(10);
+    // CRITICAL: Drain ALL buffers before test
+    drain_all_rx_buffers();
 
     // Test setTransmitPriority
     print_subheader("Test: setTransmitPriority()");
@@ -679,16 +793,8 @@ void test_transmission(uint32_t settle_time_ms) {
 void test_reception(uint32_t settle_time_ms) {
     print_header("RECEPTION TESTS");
 
-    // Clear interrupt flags and drain RX buffers
-    can->clearInterrupts();
-    delay(10);
-
-    // Drain any stale messages from previous tests
-    struct can_frame dummy;
-    while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {
-        // Discard old messages
-    }
-    delay(10);
+    // CRITICAL: Drain ALL buffers before test
+    drain_all_rx_buffers();
 
     // Test checkReceive
     print_subheader("Test: checkReceive()");
@@ -1126,11 +1232,8 @@ void test_extended_frames(uint32_t settle_time_ms) {
         return;
     }
 
-    // Clear interrupt flags and drain RX buffers
-    can->clearInterrupts();
-    struct can_frame dummy;
-    while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {}
-    delay(10);
+    // CRITICAL: Drain ALL buffers before test
+    drain_all_rx_buffers();
 
     // Test extended frame transmission and reception
     print_subheader("Test: Extended Frame TX/RX");
@@ -1232,11 +1335,8 @@ void test_dlc_variations(uint32_t settle_time_ms) {
         return;
     }
 
-    // Clear interrupt flags and drain RX buffers
-    can->clearInterrupts();
-    struct can_frame dummy;
-    while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {}
-    delay(10);
+    // CRITICAL: Drain ALL buffers before test
+    drain_all_rx_buffers();
 
     print_subheader("Test: All DLC Values (0-8)");
 
@@ -1308,11 +1408,8 @@ void test_rtr_frames(uint32_t settle_time_ms) {
         return;
     }
 
-    // Clear interrupt flags and drain RX buffers
-    can->clearInterrupts();
-    struct can_frame dummy;
-    while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {}
-    delay(10);
+    // CRITICAL: Drain ALL buffers before test
+    drain_all_rx_buffers();
 
     print_subheader("Test: Standard RTR Frame");
 
@@ -1396,6 +1493,9 @@ void test_stress(CAN_SPEED speed, uint32_t settle_time_ms) {
         print_warn("Skipping stress test - MCP2515 not connected");
         return;
     }
+
+    // CRITICAL: Drain ALL buffers before stress test to prevent queue overflow
+    drain_all_rx_buffers();
 
     uint32_t sent = 0;
     uint32_t received = 0;
