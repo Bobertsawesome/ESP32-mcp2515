@@ -569,6 +569,14 @@ MCP2515::ERROR MCP2515::setMode(const CANCTRL_REQOP_MODE mode)
     ERROR err;
     if ((err = modifyRegister(MCP_CANCTRL, CANCTRL_REQOP | CANCTRL_OSM, mode)) != ERROR_OK) return err;
 
+    // Sleep mode cannot be verified via SPI read - reading CANSTAT wakes the chip
+    // Per MCP2515 datasheet Section 7.5: "The MCP2515 wakes up into Listen-Only mode"
+    // Any SPI activity (including reading CANSTAT) causes immediate wake-up.
+    // For Sleep mode, trust that modifyRegister() succeeded above.
+    if (mode == CANCTRL_REQOP_SLEEP) {
+        return ERROR_OK;
+    }
+
     // Use delta-time pattern to prevent infinite loop when millis() overflows at 49.7 days
     unsigned long startTime = millis();
     const unsigned long timeout_ms = 10;
@@ -577,7 +585,14 @@ MCP2515::ERROR MCP2515::setMode(const CANCTRL_REQOP_MODE mode)
         uint8_t newmode = readRegister(MCP_CANSTAT);
         newmode &= CANSTAT_OPMOD;
 
-        modeMatch = newmode == mode;
+        // One-Shot mode (CANCTRL_REQOP_OSM = 0x08) is a mode modifier, not a distinct mode value.
+        // It sets the OSM bit in CANCTRL but CANSTAT will show Normal mode (0x00).
+        // For OSM verification, check that CANSTAT mode bits are 0x00 (Normal).
+        if (mode == CANCTRL_REQOP_OSM) {
+            modeMatch = (newmode == CANCTRL_REQOP_NORMAL);
+        } else {
+            modeMatch = (newmode == mode);
+        }
 
         if (modeMatch) {
             break;

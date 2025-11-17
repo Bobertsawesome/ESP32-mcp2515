@@ -471,8 +471,12 @@ void test_mode_switching() {
 
     // One-shot and sleep modes require transitioning through normal mode first
     print_subheader("setNormalOneShotMode()");
-    can->setNormalMode();  // Required transition
+    err = can->setNormalMode();  // Required transition
     delay(MODE_CHANGE_DELAY_MS);
+    if (err != MCP2515::ERROR_OK && mcp2515_connected) {
+        safe_printf("%s[WARN]%s Failed to enter normal mode before One-Shot test (error=%d)%s\n",
+                    ANSI_YELLOW, ANSI_RESET, err, ANSI_RESET);
+    }
     err = can->setNormalOneShotMode();
     delay(MODE_CHANGE_DELAY_MS);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
@@ -494,8 +498,12 @@ void test_mode_switching() {
     }
 
     print_subheader("setSleepMode()");
-    can->setNormalMode();  // Required transition
+    err = can->setNormalMode();  // Required transition
     delay(MODE_CHANGE_DELAY_MS);
+    if (err != MCP2515::ERROR_OK && mcp2515_connected) {
+        safe_printf("%s[WARN]%s Failed to enter normal mode before Sleep test (error=%d)%s\n",
+                    ANSI_YELLOW, ANSI_RESET, err, ANSI_RESET);
+    }
     err = can->setSleepMode();
     delay(MODE_CHANGE_DELAY_MS);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
@@ -538,8 +546,12 @@ void test_mode_switching() {
     }
 
     // Return to loopback mode for remaining tests
-    can->setLoopbackMode();
+    MCP2515::ERROR err_return = can->setLoopbackMode();
     delay(MODE_CHANGE_DELAY_MS);
+    if (err_return != MCP2515::ERROR_OK && mcp2515_connected) {
+        safe_printf("%s[CRITICAL]%s Failed to return to loopback mode (error=%d)! Remaining tests may be invalid.%s\n",
+                    ANSI_RED, ANSI_RESET, err_return, ANSI_RESET);
+    }
 }
 
 // ============================================================================
@@ -624,8 +636,12 @@ void test_filters_and_masks() {
         delay(FILTER_CONFIG_DELAY_MS);
 
         // Return to loopback mode
-        can->setLoopbackMode();
+        MCP2515::ERROR err_filter = can->setLoopbackMode();
         delay(MODE_CHANGE_DELAY_MS);
+        if (err_filter != MCP2515::ERROR_OK) {
+            safe_printf("%s[WARN]%s Failed to return to loopback mode for filter test (error=%d)%s\n",
+                        ANSI_YELLOW, ANSI_RESET, err_filter, ANSI_RESET);
+        }
 
         // CRITICAL: Drain ALL buffers before test
         drain_all_rx_buffers();
@@ -681,8 +697,12 @@ void test_filters_and_masks() {
     }
 
     // Return to loopback mode
-    can->setLoopbackMode();
+    MCP2515::ERROR err_cleanup = can->setLoopbackMode();
     delay(MODE_CHANGE_DELAY_MS);
+    if (err_cleanup != MCP2515::ERROR_OK && mcp2515_connected) {
+        safe_printf("%s[CRITICAL]%s Failed to return to loopback mode after filter tests (error=%d)! Remaining tests may be invalid.%s\n",
+                    ANSI_RED, ANSI_RESET, err_cleanup, ANSI_RESET);
+    }
 }
 
 // ============================================================================
