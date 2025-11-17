@@ -834,7 +834,7 @@ void test_reception(uint32_t settle_time_ms) {
     print_subheader("Test: getRxQueueCount()");
 
     uint32_t queue_count = can->getRxQueueCount();
-    safe_printf("%s[INFO]%s RX queue count: %u%s\n", ANSI_CYAN, queue_count, ANSI_RESET);
+    safe_printf("%s[INFO]%s RX queue count: %u%s\n", ANSI_CYAN, ANSI_RESET, queue_count, ANSI_RESET);
     global_stats.record_pass();
 }
 
@@ -848,25 +848,25 @@ void test_status_and_diagnostics() {
     // Test getStatus
     print_subheader("Test: getStatus()");
     uint8_t status = can->getStatus();
-    safe_printf("%s[PASS]%s Status: 0x%02X%s\n", ANSI_GREEN, status, ANSI_RESET);
+    safe_printf("%s[PASS]%s Status: 0x%02X%s\n", ANSI_GREEN, ANSI_RESET, status, ANSI_RESET);
     global_stats.record_pass();
 
     // Test getInterrupts
     print_subheader("Test: getInterrupts()");
     uint8_t interrupts = can->getInterrupts();
-    safe_printf("%s[PASS]%s Interrupts: 0x%02X%s\n", ANSI_GREEN, interrupts, ANSI_RESET);
+    safe_printf("%s[PASS]%s Interrupts: 0x%02X%s\n", ANSI_GREEN, ANSI_RESET, interrupts, ANSI_RESET);
     global_stats.record_pass();
 
     // Test getInterruptMask
     print_subheader("Test: getInterruptMask()");
     uint8_t int_mask = can->getInterruptMask();
-    safe_printf("%s[PASS]%s Interrupt mask: 0x%02X%s\n", ANSI_GREEN, int_mask, ANSI_RESET);
+    safe_printf("%s[PASS]%s Interrupt mask: 0x%02X%s\n", ANSI_GREEN, ANSI_RESET, int_mask, ANSI_RESET);
     global_stats.record_pass();
 
     // Test getErrorFlags
     print_subheader("Test: getErrorFlags()");
     uint8_t error_flags = can->getErrorFlags();
-    safe_printf("%s[PASS]%s Error flags: 0x%02X%s\n", ANSI_GREEN, error_flags, ANSI_RESET);
+    safe_printf("%s[PASS]%s Error flags: 0x%02X%s\n", ANSI_GREEN, ANSI_RESET, error_flags, ANSI_RESET);
     global_stats.record_pass();
 
     if (error_flags != 0) {
@@ -884,19 +884,19 @@ void test_status_and_diagnostics() {
     print_subheader("Test: checkError()");
     bool has_error = can->checkError();
     safe_printf("%s[PASS]%s checkError(): %s%s\n",
-               ANSI_GREEN, has_error ? "true" : "false", ANSI_RESET);
+               ANSI_GREEN, ANSI_RESET, has_error ? "true" : "false", ANSI_RESET);
     global_stats.record_pass();
 
     // Test errorCountRX
     print_subheader("Test: errorCountRX()");
     uint8_t rx_errors = can->errorCountRX();
-    safe_printf("%s[PASS]%s RX error count: %d%s\n", ANSI_GREEN, rx_errors, ANSI_RESET);
+    safe_printf("%s[PASS]%s RX error count: %d%s\n", ANSI_GREEN, ANSI_RESET, rx_errors, ANSI_RESET);
     global_stats.record_pass();
 
     // Test errorCountTX
     print_subheader("Test: errorCountTX()");
     uint8_t tx_errors = can->errorCountTX();
-    safe_printf("%s[PASS]%s TX error count: %d%s\n", ANSI_GREEN, tx_errors, ANSI_RESET);
+    safe_printf("%s[PASS]%s TX error count: %d%s\n", ANSI_GREEN, ANSI_RESET, tx_errors, ANSI_RESET);
     global_stats.record_pass();
 
     // Test getBusStatus (ESP32 only)
@@ -905,7 +905,7 @@ void test_status_and_diagnostics() {
     uint8_t mode = (bus_status >> 5) & 0x07;
     const char* mode_names[] = {"Normal", "Sleep", "Loopback", "Listen-Only", "Config", "Unknown", "Unknown", "Unknown"};
     safe_printf("%s[PASS]%s Bus status: 0x%02X (Mode: %s)%s\n",
-               ANSI_GREEN, bus_status, mode_names[mode], ANSI_RESET);
+               ANSI_GREEN, ANSI_RESET, bus_status, mode_names[mode], ANSI_RESET);
     global_stats.record_pass();
 }
 
@@ -926,7 +926,7 @@ void test_interrupt_management() {
         global_stats.record_pass();
     } else {
         safe_printf("%s[FAIL]%s Interrupts not cleared: 0x%02X%s\n",
-                   ANSI_RED, interrupts, ANSI_RESET);
+                   ANSI_RED, ANSI_RESET, interrupts, ANSI_RESET);
         global_stats.record_fail();
     }
 
@@ -1013,7 +1013,7 @@ void test_esp32_specific() {
     mcp2515_statistics_t stats;
     can->getStatistics(&stats);
 
-    safe_printf("%s[PASS]%s Statistics retrieved:%s\n", ANSI_GREEN, ANSI_RESET);
+    safe_printf("%s[PASS]%s Statistics retrieved%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
     safe_printf("  RX frames:     %u\n", stats.rx_frames);
     safe_printf("  TX frames:     %u\n", stats.tx_frames);
     safe_printf("  RX errors:     %u\n", stats.rx_errors);
