@@ -175,6 +175,22 @@ MCP2515::MCP2515(gpio_num_t cs_pin, gpio_num_t int_pin)
     SPICS = cs_pin;
     SPI_CLOCK = MCP2515_SPI_CLOCK_SPEED;
 
+#ifdef ARDUINO
+    // Arduino mode: Create mutex here (initSPI is no-op for Arduino)
+    spi_mutex = xSemaphoreCreateRecursiveMutex();
+    if (!spi_mutex) {
+        ESP_LOGE(MCP2515_LOG_TAG, "Failed to create SPI recursive mutex");
+        initialized = false;
+        return;
+    }
+
+    // Initialize Arduino SPI
+    SPIn = &SPI;
+    SPIn->begin();
+    pinMode(SPICS, OUTPUT);
+    digitalWrite(SPICS, HIGH);
+#endif
+
     // Create default config
     mcp2515_esp32_config_t config = {
         .spi_host = MCP2515_SPI_HOST,
