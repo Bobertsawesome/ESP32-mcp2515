@@ -312,14 +312,14 @@ void drain_all_rx_buffers() {
         if (drained_queue > 100) break;  // Safety limit
     }
 
-    // Drain hardware RX buffers multiple times to catch late arrivals
+    // Drain hardware RX buffers using status-checking readMessage()
+    // CRITICAL: Do NOT use readMessage(RXBn, &frame) as it doesn't check status
+    //           and will loop forever! Use readMessage(&frame) which checks first.
     uint32_t drained_hw = 0;
     for (int attempt = 0; attempt < 5; attempt++) {
-        while (can->readMessage(MCP2515::RXB0, &dummy) == MCP2515::ERROR_OK) {
+        while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {
             drained_hw++;
-        }
-        while (can->readMessage(MCP2515::RXB1, &dummy) == MCP2515::ERROR_OK) {
-            drained_hw++;
+            if (drained_hw > 100) break;  // Safety limit
         }
         delay(20);  // Wait for potential late arrivals
     }
