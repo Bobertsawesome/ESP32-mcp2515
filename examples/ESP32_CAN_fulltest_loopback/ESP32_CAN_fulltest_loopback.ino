@@ -504,7 +504,11 @@ void test_filters_and_masks() {
         can->setLoopbackMode();
         delay(MODE_CHANGE_DELAY_MS);
 
-        // Clear any pending messages
+        // Clear interrupt flags and drain buffers
+        can->clearInterrupts();
+        delay(10);
+
+        // Drain any stale messages
         struct can_frame dummy;
         while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {}
         delay(10);
@@ -570,6 +574,12 @@ void test_filters_and_masks() {
 
 void test_transmission(uint32_t settle_time_ms) {
     print_header("TRANSMISSION TESTS");
+
+    // Clear interrupt flags and drain RX buffers
+    can->clearInterrupts();
+    struct can_frame dummy;
+    while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {}
+    delay(10);
 
     // Test setTransmitPriority
     print_subheader("Test: setTransmitPriority()");
@@ -669,8 +679,15 @@ void test_transmission(uint32_t settle_time_ms) {
 void test_reception(uint32_t settle_time_ms) {
     print_header("RECEPTION TESTS");
 
-    // Clear any pending messages
+    // Clear interrupt flags and drain RX buffers
     can->clearInterrupts();
+    delay(10);
+
+    // Drain any stale messages from previous tests
+    struct can_frame dummy;
+    while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {
+        // Discard old messages
+    }
     delay(10);
 
     // Test checkReceive
@@ -806,7 +823,7 @@ void test_reception(uint32_t settle_time_ms) {
     if (can->readMessage(MCP2515::RXB0, &rx_frame) == MCP2515::ERROR_OK || !mcp2515_connected) {
         uint8_t filter_hit = can->getFilterHit(MCP2515::RXB0);
         safe_printf("%s[PASS]%s getFilterHit() returned: %d%s\n",
-                   ANSI_GREEN, filter_hit, ANSI_RESET);
+                   ANSI_GREEN, ANSI_RESET, filter_hit, ANSI_RESET);
         global_stats.record_pass();
     } else {
         print_warn("Could not test getFilterHit() - no message received");
@@ -1109,6 +1126,12 @@ void test_extended_frames(uint32_t settle_time_ms) {
         return;
     }
 
+    // Clear interrupt flags and drain RX buffers
+    can->clearInterrupts();
+    struct can_frame dummy;
+    while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {}
+    delay(10);
+
     // Test extended frame transmission and reception
     print_subheader("Test: Extended Frame TX/RX");
 
@@ -1209,6 +1232,12 @@ void test_dlc_variations(uint32_t settle_time_ms) {
         return;
     }
 
+    // Clear interrupt flags and drain RX buffers
+    can->clearInterrupts();
+    struct can_frame dummy;
+    while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {}
+    delay(10);
+
     print_subheader("Test: All DLC Values (0-8)");
 
     // Test all valid DLC values
@@ -1278,6 +1307,12 @@ void test_rtr_frames(uint32_t settle_time_ms) {
         print_warn("Skipping RTR frame tests - MCP2515 not connected");
         return;
     }
+
+    // Clear interrupt flags and drain RX buffers
+    can->clearInterrupts();
+    struct can_frame dummy;
+    while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {}
+    delay(10);
 
     print_subheader("Test: Standard RTR Frame");
 
