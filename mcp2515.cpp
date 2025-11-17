@@ -1169,13 +1169,17 @@ MCP2515::ERROR MCP2515::abortAllTransmissions(void)
         }
     }
 
-    // Clear any abort flags in TX buffers
+    // Clear TX buffer states to make them usable again
+    // Per MCP2515 datasheet: after abort, both ABTF and TXREQ remain set
     for (int i = 0; i < N_TXBUFFERS; i++) {
         const struct TXBn_REGS *txbuf = &TXB[i];
-        uint8_t ctrl = readRegister(txbuf->CTRL);
-        if (ctrl & TXB_ABTF) {
-            if ((err = modifyRegister(txbuf->CTRL, TXB_ABTF, 0)) != ERROR_OK) return err;
-        }
+
+        // Clear ABTF (abort flag) - required to prevent ERROR_FAILTX
+        if ((err = modifyRegister(txbuf->CTRL, TXB_ABTF, 0)) != ERROR_OK) return err;
+
+        // Clear TXREQ (transmit request) - required to make buffer available
+        // Without this, all buffers remain "busy" and sendMessage() fails
+        if ((err = modifyRegister(txbuf->CTRL, TXB_TXREQ, 0)) != ERROR_OK) return err;
     }
 
     return ERROR_OK;
