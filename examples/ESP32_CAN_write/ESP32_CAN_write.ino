@@ -13,13 +13,14 @@
  * - CAN_H and CAN_L connected to CAN bus with 120Ω termination
  */
 
-#include <mcp2515.h>
+#include <mcp2515->h>
 
 // Pin definitions
 #define CAN_CS_PIN    GPIO_NUM_5
 
 // Create MCP2515 instance (no interrupts needed for TX only)
-MCP2515 mcp2515(CAN_CS_PIN, GPIO_NUM_NC);
+MCP2515* mcp2515 = nullptr;  // FIXED: Initialize in setup()
+// Original: MCP2515 mcp2515(CAN_CS_PIN, GPIO_NUM_NC);
 
 // Counter for demo messages
 uint32_t message_counter = 0;
@@ -33,9 +34,16 @@ void setup() {
     Serial.println("Thread-Safe Operations");
     Serial.println("========================================");
 
+    // Create MCP2515 object (after FreeRTOS is ready)
+    mcp2515 = new MCP2515(CAN_CS_PIN, GPIO_NUM_NC);
+    if (!mcp2515) {
+        Serial.println("Failed to allocate MCP2515!");
+        while(1) delay(1000);
+    }
+
     // Initialize MCP2515
     Serial.print("Initializing MCP2515... ");
-    if (mcp2515.reset() != MCP2515::ERROR_OK) {
+    if (mcp2515->reset() != MCP2515::ERROR_OK) {
         Serial.println("FAILED!");
         Serial.println("Check SPI connections!");
         while (1) delay(1000);
@@ -44,7 +52,7 @@ void setup() {
 
     // Set bitrate (125 kbps @ 16 MHz crystal)
     Serial.print("Setting bitrate to 125 kbps... ");
-    if (mcp2515.setBitrate(CAN_125KBPS, MCP_16MHZ) != MCP2515::ERROR_OK) {
+    if (mcp2515->setBitrate(CAN_125KBPS, MCP_16MHZ) != MCP2515::ERROR_OK) {
         Serial.println("FAILED!");
         while (1) delay(1000);
     }
@@ -52,7 +60,7 @@ void setup() {
 
     // Set normal mode
     Serial.print("Setting normal mode... ");
-    if (mcp2515.setNormalMode() != MCP2515::ERROR_OK) {
+    if (mcp2515->setNormalMode() != MCP2515::ERROR_OK) {
         Serial.println("FAILED!");
         while (1) delay(1000);
     }
@@ -75,7 +83,7 @@ void loop() {
     }
 
     // Send message
-    MCP2515::ERROR result = mcp2515.sendMessage(&frame);
+    MCP2515::ERROR result = mcp2515->sendMessage(&frame);
 
     if (result == MCP2515::ERROR_OK) {
         Serial.print("Sent message #");
@@ -114,7 +122,7 @@ void loop() {
         ext_frame.data[2] = (message_counter >> 8) & 0xFF;
         ext_frame.data[3] = message_counter & 0xFF;
 
-        if (mcp2515.sendMessage(&ext_frame) == MCP2515::ERROR_OK) {
+        if (mcp2515->sendMessage(&ext_frame) == MCP2515::ERROR_OK) {
             Serial.println(">>> Sent extended frame!");
         }
     }
@@ -125,15 +133,15 @@ void loop() {
         last_stats = millis();
 
         mcp2515_statistics_t stats;
-        mcp2515.getStatistics(&stats);
+        mcp2515->getStatistics(&stats);
 
         Serial.println("\n--- Statistics ---");
         Serial.printf("TX Frames: %lu\n", stats.tx_frames);
         Serial.printf("TX Errors: %lu\n", stats.tx_errors);
         Serial.printf("TX Timeouts: %lu\n", stats.tx_timeouts);
         Serial.printf("Error Counts - RX: %d, TX: %d\n",
-                      mcp2515.errorCountRX(),
-                      mcp2515.errorCountTX());
+                      mcp2515->errorCountRX(),
+                      mcp2515->errorCountTX());
         Serial.println();
     }
 }

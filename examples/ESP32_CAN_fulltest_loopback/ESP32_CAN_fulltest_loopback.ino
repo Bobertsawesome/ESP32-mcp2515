@@ -252,7 +252,10 @@ const char* get_crystal_name(CAN_CLOCK crystal) {
 // MCP2515 INSTANCE
 // ============================================================================
 
-MCP2515 can(GPIO_NUM_37, GPIO_NUM_36);  // CS pin, INT pin
+// IMPORTANT: Must use pointer and initialize in setup() to avoid global initialization crash.
+// ESP32 constructor creates FreeRTOS mutexes, which must be created AFTER scheduler starts.
+// Global object construction happens BEFORE FreeRTOS is ready, causing crashes.
+MCP2515* can = nullptr;
 bool mcp2515_connected = false;
 
 // ============================================================================
@@ -304,7 +307,7 @@ void test_initialization() {
 
     // Test 1: Reset
     print_subheader("Test: reset()");
-    MCP2515::ERROR err = can.reset();
+    MCP2515::ERROR err = can->reset();
     if (err == MCP2515::ERROR_OK) {
         print_pass("MCP2515 reset successful");
         mcp2515_connected = true;
@@ -320,7 +323,7 @@ void test_initialization() {
 
     // Test 2: isInitialized (ESP32 only)
     print_subheader("Test: isInitialized()");
-    bool initialized = can.isInitialized();
+    bool initialized = can->isInitialized();
     if (initialized == mcp2515_connected) {
         print_pass("isInitialized() returns expected state");
         global_stats.record_pass();
@@ -336,7 +339,7 @@ void test_bitrate_configuration(CAN_SPEED speed, CAN_CLOCK crystal) {
 
     // Test single-parameter version (assumes 16MHz)
     if (crystal == MCP_16MHZ) {
-        MCP2515::ERROR err = can.setBitrate(speed);
+        MCP2515::ERROR err = can->setBitrate(speed);
         if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
             print_pass("setBitrate(speed) succeeded");
             global_stats.record_pass();
@@ -347,7 +350,7 @@ void test_bitrate_configuration(CAN_SPEED speed, CAN_CLOCK crystal) {
     }
 
     // Test two-parameter version
-    MCP2515::ERROR err = can.setBitrate(speed, crystal);
+    MCP2515::ERROR err = can->setBitrate(speed, crystal);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
         print_pass("setBitrate(speed, crystal) succeeded");
         global_stats.record_pass();
@@ -373,12 +376,12 @@ void test_mode_switching() {
         uint8_t expected_mode;  // Expected mode bits (CANSTAT >> 5)
         const char* mode_name;
     } modes[] = {
-        {"setLoopbackMode()", []() { return can.setLoopbackMode(); }, 0x02, "Loopback"},
-        {"setListenOnlyMode()", []() { return can.setListenOnlyMode(); }, 0x03, "Listen-Only"},
-        {"setNormalMode()", []() { return can.setNormalMode(); }, 0x00, "Normal"},
-        {"setNormalOneShotMode()", []() { return can.setNormalOneShotMode(); }, 0x00, "Normal One-Shot"},  // Same as normal in CANSTAT
-        {"setSleepMode()", []() { return can.setSleepMode(); }, 0x01, "Sleep"},
-        {"setConfigMode()", []() { return can.setConfigMode(); }, 0x04, "Configuration"}
+        {"setLoopbackMode()", []() { return can->setLoopbackMode(); }, 0x02, "Loopback"},
+        {"setListenOnlyMode()", []() { return can->setListenOnlyMode(); }, 0x03, "Listen-Only"},
+        {"setNormalMode()", []() { return can->setNormalMode(); }, 0x00, "Normal"},
+        {"setNormalOneShotMode()", []() { return can->setNormalOneShotMode(); }, 0x00, "Normal One-Shot"},  // Same as normal in CANSTAT
+        {"setSleepMode()", []() { return can->setSleepMode(); }, 0x01, "Sleep"},
+        {"setConfigMode()", []() { return can->setConfigMode(); }, 0x04, "Configuration"}
     };
 
     for (int i = 0; i < 6; i++) {
@@ -392,7 +395,7 @@ void test_mode_switching() {
 
             // VALIDATION: Read back bus status to verify mode was actually entered
             if (mcp2515_connected) {
-                uint8_t bus_status = can.getBusStatus();
+                uint8_t bus_status = can->getBusStatus();
                 uint8_t actual_mode = (bus_status >> 5) & 0x07;
 
                 if (actual_mode == modes[i].expected_mode) {
@@ -412,7 +415,7 @@ void test_mode_switching() {
     }
 
     // Return to loopback mode for remaining tests
-    can.setLoopbackMode();
+    can->setLoopbackMode();
     delay(MODE_CHANGE_DELAY_MS);
 }
 
@@ -424,7 +427,7 @@ void test_filters_and_masks() {
     print_header("FILTER AND MASK CONFIGURATION TESTS");
 
     // Enter config mode for filter changes
-    can.setConfigMode();
+    can->setConfigMode();
     delay(MODE_CHANGE_DELAY_MS);
 
     // Test setFilterMask
@@ -443,7 +446,7 @@ void test_filters_and_masks() {
     };
 
     for (int i = 0; i < 4; i++) {
-        MCP2515::ERROR err = can.setFilterMask(mask_tests[i].mask, mask_tests[i].ext, mask_tests[i].data);
+        MCP2515::ERROR err = can->setFilterMask(mask_tests[i].mask, mask_tests[i].ext, mask_tests[i].data);
         delay(FILTER_CONFIG_DELAY_MS);
 
         if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
@@ -475,7 +478,7 @@ void test_filters_and_masks() {
     };
 
     for (int i = 0; i < 8; i++) {
-        MCP2515::ERROR err = can.setFilter(filter_tests[i].filter, filter_tests[i].ext, filter_tests[i].data);
+        MCP2515::ERROR err = can->setFilter(filter_tests[i].filter, filter_tests[i].ext, filter_tests[i].data);
         delay(FILTER_CONFIG_DELAY_MS);
 
         if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
@@ -493,17 +496,17 @@ void test_filters_and_masks() {
 
     if (mcp2515_connected) {
         // Set RXF0 to accept only 0x100, MASK0 for exact match
-        can.setFilter(MCP2515::RXF0, false, 0x100);
-        can.setFilterMask(MCP2515::MASK0, false, 0x7FF);  // Exact match
+        can->setFilter(MCP2515::RXF0, false, 0x100);
+        can->setFilterMask(MCP2515::MASK0, false, 0x7FF);  // Exact match
         delay(FILTER_CONFIG_DELAY_MS);
 
         // Return to loopback mode
-        can.setLoopbackMode();
+        can->setLoopbackMode();
         delay(MODE_CHANGE_DELAY_MS);
 
         // Clear any pending messages
         struct can_frame dummy;
-        while (can.readMessage(&dummy) == MCP2515::ERROR_OK) {}
+        while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {}
         delay(10);
 
         // Test 1: Send matching ID (should be received)
@@ -513,11 +516,11 @@ void test_filters_and_masks() {
         tx_frame.data[0] = 0xAA;
         tx_frame.data[1] = 0xBB;
 
-        can.sendMessage(&tx_frame);
+        can->sendMessage(&tx_frame);
         delay(50);
 
         struct can_frame rx_frame;
-        MCP2515::ERROR err = can.readMessage(&rx_frame);
+        MCP2515::ERROR err = can->readMessage(&rx_frame);
         if (err == MCP2515::ERROR_OK) {
             if ((rx_frame.can_id & CAN_SFF_MASK) == 0x100) {
                 print_pass("Filter PASSED: Matching ID received");
@@ -533,10 +536,10 @@ void test_filters_and_masks() {
 
         // Test 2: Send non-matching ID (should be rejected)
         tx_frame.can_id = 0x200;  // Does NOT match filter
-        can.sendMessage(&tx_frame);
+        can->sendMessage(&tx_frame);
         delay(50);
 
-        err = can.readMessage(&rx_frame);
+        err = can->readMessage(&rx_frame);
         if (err == MCP2515::ERROR_NOMSG) {
             print_pass("Filter PASSED: Non-matching ID rejected");
             global_stats.record_pass();
@@ -546,10 +549,10 @@ void test_filters_and_masks() {
         }
 
         // Reset filters to accept all for remaining tests
-        can.setConfigMode();
+        can->setConfigMode();
         delay(MODE_CHANGE_DELAY_MS);
-        can.setFilterMask(MCP2515::MASK0, false, 0x000);
-        can.setFilterMask(MCP2515::MASK1, false, 0x000);
+        can->setFilterMask(MCP2515::MASK0, false, 0x000);
+        can->setFilterMask(MCP2515::MASK1, false, 0x000);
         delay(FILTER_CONFIG_DELAY_MS);
     } else {
         print_warn("Skipping functional filter test - MCP2515 not connected");
@@ -557,7 +560,7 @@ void test_filters_and_masks() {
     }
 
     // Return to loopback mode
-    can.setLoopbackMode();
+    can->setLoopbackMode();
     delay(MODE_CHANGE_DELAY_MS);
 }
 
@@ -574,7 +577,7 @@ void test_transmission(uint32_t settle_time_ms) {
     uint8_t priorities[] = {3, 2, 1};  // Highest to lowest
 
     for (int i = 0; i < 3; i++) {
-        MCP2515::ERROR err = can.setTransmitPriority(buffers[i], priorities[i]);
+        MCP2515::ERROR err = can->setTransmitPriority(buffers[i], priorities[i]);
         if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
             safe_printf("%s[PASS]%s TXB%d priority set to %d\n",
                        ANSI_GREEN, ANSI_RESET, i, priorities[i]);
@@ -596,7 +599,7 @@ void test_transmission(uint32_t settle_time_ms) {
     }
 
     for (int i = 0; i < 3; i++) {
-        MCP2515::ERROR err = can.sendMessage(buffers[i], &tx_frame);
+        MCP2515::ERROR err = can->sendMessage(buffers[i], &tx_frame);
         delay(settle_time_ms);  // Wait for loopback
 
         if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
@@ -618,7 +621,7 @@ void test_transmission(uint32_t settle_time_ms) {
         tx_frame.data[i] = 0xA0 + i;
     }
 
-    MCP2515::ERROR err = can.sendMessage(&tx_frame);
+    MCP2515::ERROR err = can->sendMessage(&tx_frame);
     delay(settle_time_ms);
 
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
@@ -635,9 +638,9 @@ void test_transmission(uint32_t settle_time_ms) {
 
     // Queue a message then abort it
     tx_frame.can_id = 0x789;
-    can.sendMessage(MCP2515::TXB0, &tx_frame);
+    can->sendMessage(MCP2515::TXB0, &tx_frame);
 
-    err = can.abortTransmission(MCP2515::TXB0);
+    err = can->abortTransmission(MCP2515::TXB0);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
         print_pass("Abort transmission succeeded");
         global_stats.record_pass();
@@ -649,7 +652,7 @@ void test_transmission(uint32_t settle_time_ms) {
     // Test abortAllTransmissions
     print_subheader("Test: abortAllTransmissions()");
 
-    err = can.abortAllTransmissions();
+    err = can->abortAllTransmissions();
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
         print_pass("Abort all transmissions succeeded");
         global_stats.record_pass();
@@ -667,7 +670,7 @@ void test_reception(uint32_t settle_time_ms) {
     print_header("RECEPTION TESTS");
 
     // Clear any pending messages
-    can.clearInterrupts();
+    can->clearInterrupts();
     delay(10);
 
     // Test checkReceive
@@ -681,10 +684,10 @@ void test_reception(uint32_t settle_time_ms) {
         tx_frame.data[i] = 0x20 + i;
     }
 
-    can.sendMessage(&tx_frame);
+    can->sendMessage(&tx_frame);
     delay(settle_time_ms);
 
-    bool has_message = can.checkReceive();
+    bool has_message = can->checkReceive();
     if (has_message || !mcp2515_connected) {
         print_pass("checkReceive() detected message");
         global_stats.record_pass();
@@ -697,7 +700,7 @@ void test_reception(uint32_t settle_time_ms) {
     print_subheader("Test: readMessage(frame)");
 
     struct can_frame rx_frame;
-    MCP2515::ERROR err = can.readMessage(&rx_frame);
+    MCP2515::ERROR err = can->readMessage(&rx_frame);
 
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
         print_pass("readMessage() succeeded");
@@ -729,11 +732,11 @@ void test_reception(uint32_t settle_time_ms) {
     for (int i = 0; i < 8; i++) {
         tx_frame.data[i] = 0x30 + i;
     }
-    can.sendMessage(&tx_frame);
+    can->sendMessage(&tx_frame);
     delay(settle_time_ms);
 
     // Try reading from both buffers
-    err = can.readMessage(MCP2515::RXB0, &rx_frame);
+    err = can->readMessage(MCP2515::RXB0, &rx_frame);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
         print_pass("readMessage(RXB0) succeeded");
         global_stats.record_pass();
@@ -749,7 +752,7 @@ void test_reception(uint32_t settle_time_ms) {
         }
     } else {
         // Try RXB1 if RXB0 is empty
-        err = can.readMessage(MCP2515::RXB1, &rx_frame);
+        err = can->readMessage(MCP2515::RXB1, &rx_frame);
         if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
             print_pass("readMessage(RXB1) succeeded");
             global_stats.record_pass();
@@ -768,11 +771,11 @@ void test_reception(uint32_t settle_time_ms) {
     for (int i = 0; i < 8; i++) {
         tx_frame.data[i] = 0x40 + i;
     }
-    can.sendMessage(&tx_frame);
+    can->sendMessage(&tx_frame);
     delay(settle_time_ms);
 
     // Try non-blocking read
-    err = can.readMessageQueued(&rx_frame, 0);
+    err = can->readMessageQueued(&rx_frame, 0);
     if (err == MCP2515::ERROR_OK || err == MCP2515::ERROR_NOMSG || !mcp2515_connected) {
         if (err == MCP2515::ERROR_OK) {
             print_pass("readMessageQueued() succeeded");
@@ -797,11 +800,11 @@ void test_reception(uint32_t settle_time_ms) {
 
     // Send frame and read
     tx_frame.can_id = 0x123;  // Should match RXF0 from filter tests
-    can.sendMessage(&tx_frame);
+    can->sendMessage(&tx_frame);
     delay(settle_time_ms);
 
-    if (can.readMessage(MCP2515::RXB0, &rx_frame) == MCP2515::ERROR_OK || !mcp2515_connected) {
-        uint8_t filter_hit = can.getFilterHit(MCP2515::RXB0);
+    if (can->readMessage(MCP2515::RXB0, &rx_frame) == MCP2515::ERROR_OK || !mcp2515_connected) {
+        uint8_t filter_hit = can->getFilterHit(MCP2515::RXB0);
         safe_printf("%s[PASS]%s getFilterHit() returned: %d%s\n",
                    ANSI_GREEN, filter_hit, ANSI_RESET);
         global_stats.record_pass();
@@ -813,7 +816,7 @@ void test_reception(uint32_t settle_time_ms) {
     // Test getRxQueueCount (ESP32 only)
     print_subheader("Test: getRxQueueCount()");
 
-    uint32_t queue_count = can.getRxQueueCount();
+    uint32_t queue_count = can->getRxQueueCount();
     safe_printf("%s[INFO]%s RX queue count: %u%s\n", ANSI_CYAN, queue_count, ANSI_RESET);
     global_stats.record_pass();
 }
@@ -827,25 +830,25 @@ void test_status_and_diagnostics() {
 
     // Test getStatus
     print_subheader("Test: getStatus()");
-    uint8_t status = can.getStatus();
+    uint8_t status = can->getStatus();
     safe_printf("%s[PASS]%s Status: 0x%02X%s\n", ANSI_GREEN, status, ANSI_RESET);
     global_stats.record_pass();
 
     // Test getInterrupts
     print_subheader("Test: getInterrupts()");
-    uint8_t interrupts = can.getInterrupts();
+    uint8_t interrupts = can->getInterrupts();
     safe_printf("%s[PASS]%s Interrupts: 0x%02X%s\n", ANSI_GREEN, interrupts, ANSI_RESET);
     global_stats.record_pass();
 
     // Test getInterruptMask
     print_subheader("Test: getInterruptMask()");
-    uint8_t int_mask = can.getInterruptMask();
+    uint8_t int_mask = can->getInterruptMask();
     safe_printf("%s[PASS]%s Interrupt mask: 0x%02X%s\n", ANSI_GREEN, int_mask, ANSI_RESET);
     global_stats.record_pass();
 
     // Test getErrorFlags
     print_subheader("Test: getErrorFlags()");
-    uint8_t error_flags = can.getErrorFlags();
+    uint8_t error_flags = can->getErrorFlags();
     safe_printf("%s[PASS]%s Error flags: 0x%02X%s\n", ANSI_GREEN, error_flags, ANSI_RESET);
     global_stats.record_pass();
 
@@ -862,26 +865,26 @@ void test_status_and_diagnostics() {
 
     // Test checkError
     print_subheader("Test: checkError()");
-    bool has_error = can.checkError();
+    bool has_error = can->checkError();
     safe_printf("%s[PASS]%s checkError(): %s%s\n",
                ANSI_GREEN, has_error ? "true" : "false", ANSI_RESET);
     global_stats.record_pass();
 
     // Test errorCountRX
     print_subheader("Test: errorCountRX()");
-    uint8_t rx_errors = can.errorCountRX();
+    uint8_t rx_errors = can->errorCountRX();
     safe_printf("%s[PASS]%s RX error count: %d%s\n", ANSI_GREEN, rx_errors, ANSI_RESET);
     global_stats.record_pass();
 
     // Test errorCountTX
     print_subheader("Test: errorCountTX()");
-    uint8_t tx_errors = can.errorCountTX();
+    uint8_t tx_errors = can->errorCountTX();
     safe_printf("%s[PASS]%s TX error count: %d%s\n", ANSI_GREEN, tx_errors, ANSI_RESET);
     global_stats.record_pass();
 
     // Test getBusStatus (ESP32 only)
     print_subheader("Test: getBusStatus()");
-    uint8_t bus_status = can.getBusStatus();
+    uint8_t bus_status = can->getBusStatus();
     uint8_t mode = (bus_status >> 5) & 0x07;
     const char* mode_names[] = {"Normal", "Sleep", "Loopback", "Listen-Only", "Config", "Unknown", "Unknown", "Unknown"};
     safe_printf("%s[PASS]%s Bus status: 0x%02X (Mode: %s)%s\n",
@@ -898,9 +901,9 @@ void test_interrupt_management() {
 
     // Test clearInterrupts
     print_subheader("Test: clearInterrupts()");
-    can.clearInterrupts();
+    can->clearInterrupts();
     delay(10);
-    uint8_t interrupts = can.getInterrupts();
+    uint8_t interrupts = can->getInterrupts();
     if (interrupts == 0 || !mcp2515_connected) {
         print_pass("clearInterrupts() succeeded");
         global_stats.record_pass();
@@ -912,9 +915,9 @@ void test_interrupt_management() {
 
     // Test clearTXInterrupts
     print_subheader("Test: clearTXInterrupts()");
-    can.clearTXInterrupts();
+    can->clearTXInterrupts();
     delay(10);
-    interrupts = can.getInterrupts();
+    interrupts = can->getInterrupts();
     bool tx_cleared = (interrupts & (MCP2515::CANINTF_TX0IF | MCP2515::CANINTF_TX1IF | MCP2515::CANINTF_TX2IF)) == 0;
     if (tx_cleared || !mcp2515_connected) {
         print_pass("clearTXInterrupts() succeeded");
@@ -926,9 +929,9 @@ void test_interrupt_management() {
 
     // Test clearRXnOVR
     print_subheader("Test: clearRXnOVR()");
-    can.clearRXnOVR();
+    can->clearRXnOVR();
     delay(10);
-    uint8_t eflg = can.getErrorFlags();
+    uint8_t eflg = can->getErrorFlags();
     bool ovr_cleared = (eflg & (MCP2515::EFLG_RX0OVR | MCP2515::EFLG_RX1OVR)) == 0;
     if (ovr_cleared || !mcp2515_connected) {
         print_pass("clearRXnOVR() succeeded");
@@ -940,9 +943,9 @@ void test_interrupt_management() {
 
     // Test clearRXnOVRFlags
     print_subheader("Test: clearRXnOVRFlags()");
-    can.clearRXnOVRFlags();
+    can->clearRXnOVRFlags();
     delay(10);
-    eflg = can.getErrorFlags();
+    eflg = can->getErrorFlags();
     ovr_cleared = (eflg & (MCP2515::EFLG_RX0OVR | MCP2515::EFLG_RX1OVR)) == 0;
     if (ovr_cleared || !mcp2515_connected) {
         print_pass("clearRXnOVRFlags() verified");
@@ -954,9 +957,9 @@ void test_interrupt_management() {
 
     // Test clearMERR
     print_subheader("Test: clearMERR()");
-    can.clearMERR();
+    can->clearMERR();
     delay(10);
-    interrupts = can.getInterrupts();
+    interrupts = can->getInterrupts();
     bool merr_cleared = (interrupts & MCP2515::CANINTF_MERRF) == 0;
     if (merr_cleared || !mcp2515_connected) {
         print_pass("clearMERR() verified - MERRF flag cleared");
@@ -968,9 +971,9 @@ void test_interrupt_management() {
 
     // Test clearERRIF
     print_subheader("Test: clearERRIF()");
-    can.clearERRIF();
+    can->clearERRIF();
     delay(10);
-    interrupts = can.getInterrupts();
+    interrupts = can->getInterrupts();
     bool errif_cleared = (interrupts & MCP2515::CANINTF_ERRIF) == 0;
     if (errif_cleared || !mcp2515_connected) {
         print_pass("clearERRIF() verified - ERRIF flag cleared");
@@ -991,7 +994,7 @@ void test_esp32_specific() {
     // Test getStatistics
     print_subheader("Test: getStatistics()");
     mcp2515_statistics_t stats;
-    can.getStatistics(&stats);
+    can->getStatistics(&stats);
 
     safe_printf("%s[PASS]%s Statistics retrieved:%s\n", ANSI_GREEN, ANSI_RESET);
     safe_printf("  RX frames:     %u\n", stats.rx_frames);
@@ -1006,8 +1009,8 @@ void test_esp32_specific() {
 
     // Test resetStatistics
     print_subheader("Test: resetStatistics()");
-    can.resetStatistics();
-    can.getStatistics(&stats);
+    can->resetStatistics();
+    can->getStatistics(&stats);
 
     bool all_zero = (stats.rx_frames == 0 && stats.tx_frames == 0 &&
                      stats.rx_errors == 0 && stats.tx_errors == 0);
@@ -1023,7 +1026,7 @@ void test_esp32_specific() {
     print_subheader("Test: setInterruptMode()");
 
     // Disable interrupts
-    MCP2515::ERROR err = can.setInterruptMode(false);
+    MCP2515::ERROR err = can->setInterruptMode(false);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
         print_pass("setInterruptMode(false) succeeded");
         global_stats.record_pass();
@@ -1033,7 +1036,7 @@ void test_esp32_specific() {
     }
 
     // Re-enable interrupts
-    err = can.setInterruptMode(true);
+    err = can->setInterruptMode(true);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
         print_pass("setInterruptMode(true) succeeded");
         global_stats.record_pass();
@@ -1044,7 +1047,7 @@ void test_esp32_specific() {
 
     // Test performErrorRecovery
     print_subheader("Test: performErrorRecovery()");
-    err = can.performErrorRecovery();
+    err = can->performErrorRecovery();
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
         print_pass("performErrorRecovery() succeeded");
         global_stats.record_pass();
@@ -1079,7 +1082,7 @@ void test_clock_output() {
 
     for (int i = 0; i < 5; i++) {
         print_subheader(clkout_names[i]);
-        MCP2515::ERROR err = can.setClkOut(clkout_modes[i]);
+        MCP2515::ERROR err = can->setClkOut(clkout_modes[i]);
         delay(10);
 
         if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
@@ -1116,7 +1119,7 @@ void test_extended_frames(uint32_t settle_time_ms) {
         tx_frame.data[i] = 0xE0 + i;  // Extended frame marker
     }
 
-    MCP2515::ERROR err = can.sendMessage(&tx_frame);
+    MCP2515::ERROR err = can->sendMessage(&tx_frame);
     if (err != MCP2515::ERROR_OK) {
         print_fail("Extended frame send failed");
         global_stats.record_fail();
@@ -1125,7 +1128,7 @@ void test_extended_frames(uint32_t settle_time_ms) {
     delay(settle_time_ms);
 
     struct can_frame rx_frame;
-    err = can.readMessage(&rx_frame);
+    err = can->readMessage(&rx_frame);
 
     if (err == MCP2515::ERROR_OK) {
         // Verify extended frame flag is set
@@ -1172,10 +1175,10 @@ void test_extended_frames(uint32_t settle_time_ms) {
         tx_frame.can_dlc = 1;
         tx_frame.data[0] = i;
 
-        can.sendMessage(&tx_frame);
+        can->sendMessage(&tx_frame);
         delay(settle_time_ms);
 
-        if (can.readMessage(&rx_frame) == MCP2515::ERROR_OK) {
+        if (can->readMessage(&rx_frame) == MCP2515::ERROR_OK) {
             uint32_t rx_id = rx_frame.can_id & CAN_EFF_MASK;
             if (rx_id == test_ids[i]) {
                 safe_printf("%s[PASS]%s Extended ID %s: 0x%08lX%s\n",
@@ -1219,7 +1222,7 @@ void test_dlc_variations(uint32_t settle_time_ms) {
             tx_frame.data[i] = 0xD0 + i;  // DLC marker pattern
         }
 
-        MCP2515::ERROR err = can.sendMessage(&tx_frame);
+        MCP2515::ERROR err = can->sendMessage(&tx_frame);
         if (err != MCP2515::ERROR_OK) {
             safe_printf("%s[FAIL]%s DLC=%d send failed%s\n", ANSI_RED, ANSI_RESET, dlc, ANSI_RESET);
             global_stats.record_fail();
@@ -1229,7 +1232,7 @@ void test_dlc_variations(uint32_t settle_time_ms) {
         delay(settle_time_ms);
 
         struct can_frame rx_frame;
-        err = can.readMessage(&rx_frame);
+        err = can->readMessage(&rx_frame);
 
         if (err == MCP2515::ERROR_OK) {
             if (rx_frame.can_dlc == dlc) {
@@ -1282,7 +1285,7 @@ void test_rtr_frames(uint32_t settle_time_ms) {
     tx_frame.can_id = 0x600 | CAN_RTR_FLAG;  // Standard ID with RTR flag
     tx_frame.can_dlc = 0;  // RTR frames have no data
 
-    MCP2515::ERROR err = can.sendMessage(&tx_frame);
+    MCP2515::ERROR err = can->sendMessage(&tx_frame);
     if (err != MCP2515::ERROR_OK) {
         print_fail("RTR frame send failed");
         global_stats.record_fail();
@@ -1292,7 +1295,7 @@ void test_rtr_frames(uint32_t settle_time_ms) {
     delay(settle_time_ms);
 
     struct can_frame rx_frame;
-    err = can.readMessage(&rx_frame);
+    err = can->readMessage(&rx_frame);
 
     if (err == MCP2515::ERROR_OK) {
         if (rx_frame.can_id & CAN_RTR_FLAG) {
@@ -1322,10 +1325,10 @@ void test_rtr_frames(uint32_t settle_time_ms) {
     tx_frame.can_id = 0x12345600 | CAN_EFF_FLAG | CAN_RTR_FLAG;
     tx_frame.can_dlc = 0;
 
-    err = can.sendMessage(&tx_frame);
+    err = can->sendMessage(&tx_frame);
     delay(settle_time_ms);
 
-    if (can.readMessage(&rx_frame) == MCP2515::ERROR_OK) {
+    if (can->readMessage(&rx_frame) == MCP2515::ERROR_OK) {
         bool eff_ok = (rx_frame.can_id & CAN_EFF_FLAG) != 0;
         bool rtr_ok = (rx_frame.can_id & CAN_RTR_FLAG) != 0;
 
@@ -1378,7 +1381,7 @@ void test_stress(CAN_SPEED speed, uint32_t settle_time_ms) {
         memcpy(tx_frame.data + 4, &pattern, 4);
 
         // Send frame
-        MCP2515::ERROR err = can.sendMessage(&tx_frame);
+        MCP2515::ERROR err = can->sendMessage(&tx_frame);
         if (err == MCP2515::ERROR_OK) {
             sent++;
         } else {
@@ -1394,7 +1397,7 @@ void test_stress(CAN_SPEED speed, uint32_t settle_time_ms) {
 
         // Receive frame
         struct can_frame rx_frame;
-        err = can.readMessage(&rx_frame);
+        err = can->readMessage(&rx_frame);
         if (err == MCP2515::ERROR_OK) {
             received++;
 
@@ -1553,6 +1556,14 @@ void setup() {
     SPI.begin(SPI_SCK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, SPI_CS_PIN);
 
     delay(100);
+
+    // Initialize MCP2515 object (MUST be done in setup(), not globally)
+    // This ensures FreeRTOS is fully started before creating mutexes
+    can = new MCP2515(GPIO_NUM_37, GPIO_NUM_36);  // CS pin, INT pin
+    if (!can) {
+        Serial.println("[FATAL] Failed to allocate MCP2515 object!");
+        while(1) delay(1000);
+    }
 
     // Run tests
     if (ENABLE_MULTI_SPEED_TEST) {

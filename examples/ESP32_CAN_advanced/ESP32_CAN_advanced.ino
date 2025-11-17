@@ -36,7 +36,8 @@ TaskHandle_t txTaskHandle = NULL;
 TaskHandle_t monitorTaskHandle = NULL;
 
 // MCP2515 instance with full configuration
-MCP2515 mcp2515(CAN_CS_PIN, CAN_INT_PIN);
+MCP2515* mcp2515 = nullptr;  // FIXED: Initialize in setup()
+// Original: MCP2515 mcp2515(CAN_CS_PIN, CAN_INT_PIN);
 
 // Shared data (protected by FreeRTOS)
 SemaphoreHandle_t dataMutex = NULL;
@@ -60,9 +61,16 @@ void setup() {
     // Create mutex for shared data
     dataMutex = xSemaphoreCreateMutex();
 
+    // Create MCP2515 object (after FreeRTOS is ready)
+    mcp2515 = new MCP2515(CAN_CS_PIN, CAN_INT_PIN);
+    if (!mcp2515) {
+        Serial.println("Failed to allocate MCP2515!");
+        while(1) delay(1000);
+    }
+
     // Initialize MCP2515
     Serial.print("Initializing MCP2515... ");
-    if (mcp2515.reset() != MCP2515::ERROR_OK) {
+    if (mcp2515->reset() != MCP2515::ERROR_OK) {
         Serial.println("FAILED!");
         while (1) delay(1000);
     }
@@ -70,7 +78,7 @@ void setup() {
 
     // Set bitrate
     Serial.print("Setting bitrate... ");
-    if (mcp2515.setBitrate(CAN_125KBPS, MCP_16MHZ) != MCP2515::ERROR_OK) {
+    if (mcp2515->setBitrate(CAN_125KBPS, MCP_16MHZ) != MCP2515::ERROR_OK) {
         Serial.println("FAILED!");
         while (1) delay(1000);
     }
@@ -80,23 +88,23 @@ void setup() {
     Serial.println("Configuring CAN filters...");
 
     // Filter 0: Accept sensor 1 (0x100)
-    mcp2515.setFilter(MCP2515::RXF0, false, CAN_ID_SENSOR1);
+    mcp2515->setFilter(MCP2515::RXF0, false, CAN_ID_SENSOR1);
 
     // Filter 1: Accept sensor 2 (0x101)
-    mcp2515.setFilter(MCP2515::RXF1, false, CAN_ID_SENSOR2);
+    mcp2515->setFilter(MCP2515::RXF1, false, CAN_ID_SENSOR2);
 
     // Filter 2: Accept commands (0x200)
-    mcp2515.setFilter(MCP2515::RXF2, false, CAN_ID_COMMAND);
+    mcp2515->setFilter(MCP2515::RXF2, false, CAN_ID_COMMAND);
 
     // Set masks to check all bits
-    mcp2515.setFilterMask(MCP2515::MASK0, false, 0x7FF);
-    mcp2515.setFilterMask(MCP2515::MASK1, false, 0x7FF);
+    mcp2515->setFilterMask(MCP2515::MASK0, false, 0x7FF);
+    mcp2515->setFilterMask(MCP2515::MASK1, false, 0x7FF);
 
     Serial.println("Filters configured");
 
     // Set normal mode
     Serial.print("Setting normal mode... ");
-    if (mcp2515.setNormalMode() != MCP2515::ERROR_OK) {
+    if (mcp2515->setNormalMode() != MCP2515::ERROR_OK) {
         Serial.println("FAILED!");
         while (1) delay(1000);
     }
@@ -152,7 +160,7 @@ void rxTask(void* pvParameters) {
 
     while (true) {
         // Wait for frame with 100ms timeout
-        MCP2515::ERROR result = mcp2515.readMessageQueued(&frame, 100);
+        MCP2515::ERROR result = mcp2515->readMessageQueued(&frame, 100);
 
         if (result == MCP2515::ERROR_OK) {
             // Process based on CAN ID
@@ -226,7 +234,7 @@ void txTask(void* pvParameters) {
         frame.data[6] = (free_heap >> 8) & 0xFF;
         frame.data[7] = free_heap & 0xFF;
 
-        MCP2515::ERROR result = mcp2515.sendMessage(&frame);
+        MCP2515::ERROR result = mcp2515->sendMessage(&frame);
 
         if (result == MCP2515::ERROR_OK) {
             Serial.printf("[TX] Status #%lu sent\n", counter);
@@ -235,7 +243,7 @@ void txTask(void* pvParameters) {
 
             // Attempt error recovery
             if (result == MCP2515::ERROR_ALLTXBUSY) {
-                mcp2515.performErrorRecovery();
+                mcp2515->performErrorRecovery();
             }
         }
 
@@ -255,11 +263,11 @@ void monitorTask(void* pvParameters) {
 
         // Get statistics
         mcp2515_statistics_t stats;
-        mcp2515.getStatistics(&stats);
+        mcp2515->getStatistics(&stats);
 
         Serial.printf("RX Frames:     %lu\n", stats.rx_frames);
         Serial.printf("TX Frames:     %lu\n", stats.tx_frames);
-        Serial.printf("RX Queue Size: %lu\n", mcp2515.getRxQueueCount());
+        Serial.printf("RX Queue Size: %lu\n", mcp2515->getRxQueueCount());
         Serial.printf("RX Errors:     %lu\n", stats.rx_errors);
         Serial.printf("TX Errors:     %lu\n", stats.tx_errors);
         Serial.printf("RX Overflows:  %lu\n", stats.rx_overflow);
@@ -268,8 +276,8 @@ void monitorTask(void* pvParameters) {
 
         // Error counters
         Serial.printf("\nError Counts - RX: %d, TX: %d\n",
-                      mcp2515.errorCountRX(),
-                      mcp2515.errorCountTX());
+                      mcp2515->errorCountRX(),
+                      mcp2515->errorCountTX());
 
         // Sensor values
         if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(100)) == pdTRUE) {

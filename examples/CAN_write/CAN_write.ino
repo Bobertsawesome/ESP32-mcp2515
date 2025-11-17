@@ -3,7 +3,7 @@
 
 struct can_frame canMsg1;
 struct can_frame canMsg2;
-MCP2515 mcp2515(10);
+MCP2515* mcp2515 = nullptr;  // Fixed: Initialize in setup()
 
 
 void setup() {
@@ -31,17 +31,24 @@ void setup() {
   
   while (!Serial);
   Serial.begin(115200);
-  
-  mcp2515.reset();
-  mcp2515.setBitrate(CAN_125KBPS);
-  mcp2515.setNormalMode();
-  
+
+  // Initialize MCP2515 after FreeRTOS is ready
+  mcp2515 = new MCP2515(10);
+  if (!mcp2515) {
+    Serial.println("Failed to allocate MCP2515!");
+    while(1) delay(1000);
+  }
+
+  mcp2515->reset();
+  mcp2515->setBitrate(CAN_125KBPS);
+  mcp2515->setNormalMode();
+
   Serial.println("Example: Write to CAN");
 }
 
 void loop() {
-  mcp2515.sendMessage(&canMsg1);
-  mcp2515.sendMessage(&canMsg2);
+  mcp2515->sendMessage(&canMsg1);
+  mcp2515->sendMessage(&canMsg2);
 
   Serial.println("Messages sent");
   
