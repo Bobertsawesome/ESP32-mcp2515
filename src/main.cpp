@@ -877,6 +877,14 @@ void test_reception(uint32_t settle_time_ms) {
             MCP2515::ERROR send_err = can->sendMessage(&poll_tx);
             delay(100);  // Extra time for loopback
 
+            // DIAGNOSTIC: Check if transmission completed
+            // Read TXB0CTRL to check TXREQ bit (bit 3)
+            // If TXREQ=1, transmission is still pending or failed
+            // If TXREQ=0, transmission completed
+            uint8_t txb0ctrl = can->getTXB0CTRL();
+            safe_printf("%s[DEBUG]%s TX status after 100ms wait: TXB0CTRL=0x%02X (TXREQ=%d) send_err=%d\n",
+                       ANSI_CYAN, ANSI_RESET, txb0ctrl, (txb0ctrl >> 3) & 0x01, send_err);
+
             // Try reading with polling (no queue)
             struct can_frame poll_rx;
             MCP2515::ERROR read_err = can->readMessage(&poll_rx);
@@ -1882,17 +1890,28 @@ void run_full_test_suite(CAN_SPEED speed, CAN_CLOCK crystal) {
 // Wait for user to send any character over serial before starting tests
 // This prevents losing early test output due to serial monitor connection timing
 void wait_for_serial_start() {
-    Serial.println();
-    Serial.println("================================================================================");
-    Serial.println("  ESP32-MCP2515 Comprehensive Test Suite");
-    Serial.println("================================================================================");
-    Serial.println();
-    Serial.println("Press ENTER or send any character to start tests...");
-    Serial.println();
+    // Continuously print banner every 2 seconds until we receive input
+    // This ensures automated scripts see the banner even with connection delays
+    bool received_input = false;
 
-    // Wait for any character
-    while (!Serial.available()) {
-        delay(100);
+    while (!received_input) {
+        Serial.println();
+        Serial.println("================================================================================");
+        Serial.println("  ESP32-MCP2515 Comprehensive Test Suite");
+        Serial.println("================================================================================");
+        Serial.println();
+        Serial.println("Waiting for input to start tests... (send any character)");
+        Serial.println();
+
+        // Wait up to 2 seconds for input
+        unsigned long start = millis();
+        while (millis() - start < 2000) {
+            if (Serial.available()) {
+                received_input = true;
+                break;
+            }
+            delay(50);
+        }
     }
 
     // Clear the serial buffer

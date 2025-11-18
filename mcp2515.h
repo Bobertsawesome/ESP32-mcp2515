@@ -717,6 +717,12 @@ class MCP2515
         uint8_t getCANSTAT(void);
 
         /**
+         * @brief Get TXB0CTRL register value for diagnostics
+         * @return TXB0CTRL register contents
+         */
+        uint8_t getTXB0CTRL(void);
+
+        /**
          * @brief Get detailed bus status
          * @return Bus status flags
          */

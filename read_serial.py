@@ -25,15 +25,21 @@ try:
     print(f"Logging to: {log_filename}", file=sys.stderr)
     print("=" * 80, file=sys.stderr)
 
-    # Wait briefly for ESP32 to be ready, then send ENTER to start tests
-    time.sleep(1)
-    ser.write(b'\n')
-    ser.flush()
-    print("Sent ENTER to start tests", file=sys.stderr)
-
     with open(log_filename, 'w') as log_file:
+        # Read for 3 seconds first to capture the repeating banner
+        # Then send start command
         start_time = time.time()
+        banner_captured = False
+
         while (time.time() - start_time) < timeout:
+            # After 3 seconds, send the start command
+            if not banner_captured and (time.time() - start_time) > 3:
+                ser.write(b'S')
+                ser.flush()
+                print("Sent start command to ESP32", file=sys.stderr)
+                banner_captured = True
+
+            # Continue reading as before
             if ser.in_waiting > 0:
                 data = ser.read(ser.in_waiting)
                 try:

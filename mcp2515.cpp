@@ -1198,6 +1198,15 @@ MCP2515::ERROR MCP2515::abortAllTransmissions(void)
         }
     }
 
+    // Verify ABAT actually cleared - if not, manually clear it
+    // In loopback mode, hardware may not auto-clear ABAT since no actual bus transmission occurs
+    uint8_t ctrl = readRegister(MCP_CANCTRL);
+    if (ctrl & CANCTRL_ABAT) {
+        // Manually clear ABAT bit
+        if ((err = modifyRegister(MCP_CANCTRL, CANCTRL_ABAT, 0)) != ERROR_OK) return err;
+        delay(1);  // Give hardware time to process
+    }
+
     // Clear TX buffer states to make them usable again
     // CRITICAL: Per MCP2515 datasheet Section 3.4, the ABTF flag is READ-ONLY
     // and cannot be cleared by writing to TXBnCTRL. It automatically clears
@@ -1658,6 +1667,12 @@ void MCP2515::isrTask(void* pvParameters)
 
 void MCP2515::processInterrupts()
 {
+    // Don't process if interrupts are disabled - prevents ISR task from
+    // consuming frames when application code wants to poll hardware directly
+    if (!use_interrupts) {
+        return;
+    }
+
     uint8_t irq = getInterrupts();
 
     // Handle RX interrupts
@@ -1832,6 +1847,11 @@ uint8_t MCP2515::getCANCTRL(void)
 uint8_t MCP2515::getCANSTAT(void)
 {
     return readRegister(MCP_CANSTAT);
+}
+
+uint8_t MCP2515::getTXB0CTRL(void)
+{
+    return readRegister(MCP_TXB0CTRL);
 }
 
 uint8_t MCP2515::getBusStatus(void)
