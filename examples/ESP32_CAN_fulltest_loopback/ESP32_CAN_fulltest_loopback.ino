@@ -345,11 +345,11 @@ void test_initialization() {
     print_subheader("Test: reset()");
     MCP2515::ERROR err = can->reset();
     if (err == MCP2515::ERROR_OK) {
-        print_pass("MCP2515 reset successful");
+        safe_printf("%s[PASS]%s MCP2515 reset successful (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
         mcp2515_connected = true;
         global_stats.record_pass();
     } else {
-        print_fail("MCP2515 reset failed - device may not be connected");
+        safe_printf("%s[FAIL]%s MCP2515 reset failed - device may not be connected (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         safe_printf("%sWARNING: Continuing tests to verify no false passes%s\n",
                    ANSI_YELLOW, ANSI_RESET);
         mcp2515_connected = false;
@@ -361,10 +361,12 @@ void test_initialization() {
     print_subheader("Test: isInitialized()");
     bool initialized = can->isInitialized();
     if (initialized == mcp2515_connected) {
-        print_pass("isInitialized() returns expected state");
+        safe_printf("%s[PASS]%s isInitialized() returns expected state (initialized=%s)\n",
+                   ANSI_GREEN, ANSI_RESET, initialized ? "true" : "false");
         global_stats.record_pass();
     } else {
-        print_fail("isInitialized() mismatch");
+        safe_printf("%s[FAIL]%s isInitialized() mismatch (initialized=%s)\n",
+                   ANSI_RED, ANSI_RESET, initialized ? "true" : "false");
         global_stats.record_fail();
     }
     safe_printf("  Initialized: %s\n", initialized ? "true" : "false");
@@ -377,10 +379,10 @@ void test_bitrate_configuration(CAN_SPEED speed, CAN_CLOCK crystal) {
     if (crystal == MCP_16MHZ) {
         MCP2515::ERROR err = can->setBitrate(speed);
         if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-            print_pass("setBitrate(speed) succeeded");
+            safe_printf("%s[PASS]%s setBitrate(speed) succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
             global_stats.record_pass();
         } else {
-            print_fail("setBitrate(speed) failed");
+            safe_printf("%s[FAIL]%s setBitrate(speed) failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
             global_stats.record_fail();
         }
     }
@@ -388,10 +390,10 @@ void test_bitrate_configuration(CAN_SPEED speed, CAN_CLOCK crystal) {
     // Test two-parameter version
     MCP2515::ERROR err = can->setBitrate(speed, crystal);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        print_pass("setBitrate(speed, crystal) succeeded");
+        safe_printf("%s[PASS]%s setBitrate(speed, crystal) succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
         global_stats.record_pass();
     } else {
-        print_fail("setBitrate(speed, crystal) failed");
+        safe_printf("%s[FAIL]%s setBitrate(speed, crystal) failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
     }
 
@@ -410,20 +412,20 @@ void test_mode_switching() {
     MCP2515::ERROR err = can->setLoopbackMode();
     delay(MODE_CHANGE_DELAY_MS);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        safe_printf("%s[PASS]%s Mode function returned ERROR_OK%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
+        safe_printf("%s[PASS]%s Mode function returned ERROR_OK (err=%d)%s\n", ANSI_GREEN, ANSI_RESET, err, ANSI_RESET);
         global_stats.record_pass();
         if (mcp2515_connected) {
             uint8_t mode = (can->getBusStatus() >> 5) & 0x07;
             if (mode == 0x02) {
-                safe_printf("%s[PASS]%s Mode verified: Loopback (0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
+                safe_printf("%s[PASS]%s Mode verified: Loopback (mode=0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
                 global_stats.record_pass();
             } else {
-                safe_printf("%s[FAIL]%s Mode mismatch%s\n", ANSI_RED, ANSI_RESET, ANSI_RESET);
+                safe_printf("%s[FAIL]%s Mode mismatch (mode=0x%02X, expected=0x02)%s\n", ANSI_RED, ANSI_RESET, mode, ANSI_RESET);
                 global_stats.record_fail();
             }
         }
     } else {
-        print_fail("Mode change failed");
+        safe_printf("%s[FAIL]%s Mode change failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
     }
 
@@ -431,20 +433,20 @@ void test_mode_switching() {
     err = can->setListenOnlyMode();
     delay(MODE_CHANGE_DELAY_MS);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        safe_printf("%s[PASS]%s Mode function returned ERROR_OK%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
+        safe_printf("%s[PASS]%s Mode function returned ERROR_OK (err=%d)%s\n", ANSI_GREEN, ANSI_RESET, err, ANSI_RESET);
         global_stats.record_pass();
         if (mcp2515_connected) {
             uint8_t mode = (can->getBusStatus() >> 5) & 0x07;
             if (mode == 0x03) {
-                safe_printf("%s[PASS]%s Mode verified: Listen-Only (0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
+                safe_printf("%s[PASS]%s Mode verified: Listen-Only (mode=0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
                 global_stats.record_pass();
             } else {
-                safe_printf("%s[FAIL]%s Mode mismatch%s\n", ANSI_RED, ANSI_RESET, ANSI_RESET);
+                safe_printf("%s[FAIL]%s Mode mismatch (mode=0x%02X, expected=0x03)%s\n", ANSI_RED, ANSI_RESET, mode, ANSI_RESET);
                 global_stats.record_fail();
             }
         }
     } else {
-        print_fail("Mode change failed");
+        safe_printf("%s[FAIL]%s Mode change failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
     }
 
@@ -452,20 +454,20 @@ void test_mode_switching() {
     err = can->setNormalMode();
     delay(MODE_CHANGE_DELAY_MS);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        safe_printf("%s[PASS]%s Mode function returned ERROR_OK%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
+        safe_printf("%s[PASS]%s Mode function returned ERROR_OK (err=%d)%s\n", ANSI_GREEN, ANSI_RESET, err, ANSI_RESET);
         global_stats.record_pass();
         if (mcp2515_connected) {
             uint8_t mode = (can->getBusStatus() >> 5) & 0x07;
             if (mode == 0x00) {
-                safe_printf("%s[PASS]%s Mode verified: Normal (0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
+                safe_printf("%s[PASS]%s Mode verified: Normal (mode=0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
                 global_stats.record_pass();
             } else {
-                safe_printf("%s[FAIL]%s Mode mismatch%s\n", ANSI_RED, ANSI_RESET, ANSI_RESET);
+                safe_printf("%s[FAIL]%s Mode mismatch (mode=0x%02X, expected=0x00)%s\n", ANSI_RED, ANSI_RESET, mode, ANSI_RESET);
                 global_stats.record_fail();
             }
         }
     } else {
-        print_fail("Mode change failed");
+        safe_printf("%s[FAIL]%s Mode change failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
     }
 
@@ -480,20 +482,20 @@ void test_mode_switching() {
     err = can->setNormalOneShotMode();
     delay(MODE_CHANGE_DELAY_MS);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        safe_printf("%s[PASS]%s Mode function returned ERROR_OK%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
+        safe_printf("%s[PASS]%s Mode function returned ERROR_OK (err=%d)%s\n", ANSI_GREEN, ANSI_RESET, err, ANSI_RESET);
         global_stats.record_pass();
         if (mcp2515_connected) {
             uint8_t mode = (can->getBusStatus() >> 5) & 0x07;
             if (mode == 0x00) {  // One-shot shows as normal in CANSTAT
-                safe_printf("%s[PASS]%s Mode verified: Normal One-Shot (0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
+                safe_printf("%s[PASS]%s Mode verified: Normal One-Shot (mode=0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
                 global_stats.record_pass();
             } else {
-                safe_printf("%s[FAIL]%s Mode mismatch%s\n", ANSI_RED, ANSI_RESET, ANSI_RESET);
+                safe_printf("%s[FAIL]%s Mode mismatch (mode=0x%02X, expected=0x00)%s\n", ANSI_RED, ANSI_RESET, mode, ANSI_RESET);
                 global_stats.record_fail();
             }
         }
     } else {
-        print_fail("Mode change failed");
+        safe_printf("%s[FAIL]%s Mode change failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
     }
 
@@ -507,7 +509,7 @@ void test_mode_switching() {
     err = can->setSleepMode();
     delay(MODE_CHANGE_DELAY_MS);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        safe_printf("%s[PASS]%s Mode function returned ERROR_OK%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
+        safe_printf("%s[PASS]%s Mode function returned ERROR_OK (err=%d)%s\n", ANSI_GREEN, ANSI_RESET, err, ANSI_RESET);
         global_stats.record_pass();
         if (mcp2515_connected) {
             // Cannot verify Sleep mode - per MCP2515 datasheet Section 7.5:
@@ -522,12 +524,12 @@ void test_mode_switching() {
             MCP2515::ERROR wake_err = can->setNormalMode();
             delay(MODE_CHANGE_DELAY_MS);
             if (wake_err != MCP2515::ERROR_OK) {
-                safe_printf("%s[WARN]%s Failed to wake from Sleep mode (error=%d)%s\n",
+                safe_printf("%s[WARN]%s Failed to wake from Sleep mode (wake_err=%d)%s\n",
                             ANSI_YELLOW, ANSI_RESET, wake_err, ANSI_RESET);
             }
         }
     } else {
-        print_fail("Mode change failed");
+        safe_printf("%s[FAIL]%s Mode change failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
     }
 
@@ -535,20 +537,20 @@ void test_mode_switching() {
     err = can->setConfigMode();
     delay(MODE_CHANGE_DELAY_MS);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        safe_printf("%s[PASS]%s Mode function returned ERROR_OK%s\n", ANSI_GREEN, ANSI_RESET, ANSI_RESET);
+        safe_printf("%s[PASS]%s Mode function returned ERROR_OK (err=%d)%s\n", ANSI_GREEN, ANSI_RESET, err, ANSI_RESET);
         global_stats.record_pass();
         if (mcp2515_connected) {
             uint8_t mode = (can->getBusStatus() >> 5) & 0x07;
             if (mode == 0x04) {
-                safe_printf("%s[PASS]%s Mode verified: Configuration (0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
+                safe_printf("%s[PASS]%s Mode verified: Configuration (mode=0x%02X)%s\n", ANSI_GREEN, ANSI_RESET, mode, ANSI_RESET);
                 global_stats.record_pass();
             } else {
-                safe_printf("%s[FAIL]%s Mode mismatch%s\n", ANSI_RED, ANSI_RESET, ANSI_RESET);
+                safe_printf("%s[FAIL]%s Mode mismatch (mode=0x%02X, expected=0x04)%s\n", ANSI_RED, ANSI_RESET, mode, ANSI_RESET);
                 global_stats.record_fail();
             }
         }
     } else {
-        print_fail("Mode change failed");
+        safe_printf("%s[FAIL]%s Mode change failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
     }
 
@@ -592,10 +594,10 @@ void test_filters_and_masks() {
         delay(FILTER_CONFIG_DELAY_MS);
 
         if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-            safe_printf("%s[PASS]%s %s\n", ANSI_GREEN, ANSI_RESET, mask_tests[i].desc);
+            safe_printf("%s[PASS]%s %s (err=%d)\n", ANSI_GREEN, ANSI_RESET, mask_tests[i].desc, err);
             global_stats.record_pass();
         } else {
-            safe_printf("%s[FAIL]%s %s\n", ANSI_RED, ANSI_RESET, mask_tests[i].desc);
+            safe_printf("%s[FAIL]%s %s (err=%d)\n", ANSI_RED, ANSI_RESET, mask_tests[i].desc, err);
             global_stats.record_fail();
         }
     }
@@ -624,11 +626,11 @@ void test_filters_and_masks() {
         delay(FILTER_CONFIG_DELAY_MS);
 
         if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-            safe_printf("%s[PASS]%s %s (ID=0x%X)\n", ANSI_GREEN, ANSI_RESET,
-                       filter_tests[i].desc, filter_tests[i].data);
+            safe_printf("%s[PASS]%s %s (ID=0x%X, err=%d)\n", ANSI_GREEN, ANSI_RESET,
+                       filter_tests[i].desc, filter_tests[i].data, err);
             global_stats.record_pass();
         } else {
-            safe_printf("%s[FAIL]%s %s\n", ANSI_RED, ANSI_RESET, filter_tests[i].desc);
+            safe_printf("%s[FAIL]%s %s (err=%d)\n", ANSI_RED, ANSI_RESET, filter_tests[i].desc, err);
             global_stats.record_fail();
         }
     }
@@ -667,14 +669,14 @@ void test_filters_and_masks() {
         MCP2515::ERROR err = can->readMessage(&rx_frame);
         if (err == MCP2515::ERROR_OK) {
             if ((rx_frame.can_id & CAN_SFF_MASK) == 0x100) {
-                print_pass("Filter PASSED: Matching ID received");
+                safe_printf("%s[PASS]%s Filter PASSED: Matching ID received (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
                 global_stats.record_pass();
             } else {
-                print_fail("Filter FAILED: Wrong ID received");
+                safe_printf("%s[FAIL]%s Filter FAILED: Wrong ID received (err=%d)\n", ANSI_RED, ANSI_RESET, err);
                 global_stats.record_fail();
             }
         } else {
-            print_fail("Filter FAILED: Matching ID not received");
+            safe_printf("%s[FAIL]%s Filter FAILED: Matching ID not received (err=%d)\n", ANSI_RED, ANSI_RESET, err);
             global_stats.record_fail();
         }
 
@@ -685,10 +687,10 @@ void test_filters_and_masks() {
 
         err = can->readMessage(&rx_frame);
         if (err == MCP2515::ERROR_NOMSG) {
-            print_pass("Filter PASSED: Non-matching ID rejected");
+            safe_printf("%s[PASS]%s Filter PASSED: Non-matching ID rejected (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
             global_stats.record_pass();
         } else {
-            print_fail("Filter FAILED: Non-matching ID was received");
+            safe_printf("%s[FAIL]%s Filter FAILED: Non-matching ID was received (err=%d)\n", ANSI_RED, ANSI_RESET, err);
             global_stats.record_fail();
         }
 
@@ -756,11 +758,11 @@ void test_transmission(uint32_t settle_time_ms) {
     for (int i = 0; i < 3; i++) {
         MCP2515::ERROR err = can->setTransmitPriority(buffers[i], priorities[i]);
         if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-            safe_printf("%s[PASS]%s TXB%d priority set to %d\n",
-                       ANSI_GREEN, ANSI_RESET, i, priorities[i]);
+            safe_printf("%s[PASS]%s TXB%d priority set to %d (err=%d)\n",
+                       ANSI_GREEN, ANSI_RESET, i, priorities[i], err);
             global_stats.record_pass();
         } else {
-            safe_printf("%s[FAIL]%s TXB%d priority failed\n", ANSI_RED, ANSI_RESET, i);
+            safe_printf("%s[FAIL]%s TXB%d priority failed (err=%d)\n", ANSI_RED, ANSI_RESET, i, err);
             global_stats.record_fail();
         }
     }
@@ -780,10 +782,10 @@ void test_transmission(uint32_t settle_time_ms) {
         delay(settle_time_ms);  // Wait for loopback
 
         if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-            safe_printf("%s[PASS]%s TXB%d send succeeded\n", ANSI_GREEN, ANSI_RESET, i);
+            safe_printf("%s[PASS]%s TXB%d send succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, i, err);
             global_stats.record_pass();
         } else {
-            safe_printf("%s[FAIL]%s TXB%d send failed (error=%d)\n",
+            safe_printf("%s[FAIL]%s TXB%d send failed (err=%d)\n",
                        ANSI_RED, ANSI_RESET, i, err);
             global_stats.record_fail();
         }
@@ -802,10 +804,10 @@ void test_transmission(uint32_t settle_time_ms) {
     delay(settle_time_ms);
 
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        print_pass("Auto buffer selection send succeeded");
+        safe_printf("%s[PASS]%s Auto buffer selection send succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
         global_stats.record_pass();
     } else {
-        safe_printf("%s[FAIL]%s Auto buffer send failed (error=%d)%s\n",
+        safe_printf("%s[FAIL]%s Auto buffer send failed (err=%d)%s\n",
                    ANSI_RED, ANSI_RESET, (int)err, ANSI_RESET);
         global_stats.record_fail();
     }
@@ -819,10 +821,10 @@ void test_transmission(uint32_t settle_time_ms) {
 
     err = can->abortTransmission(MCP2515::TXB0);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        print_pass("Abort transmission succeeded");
+        safe_printf("%s[PASS]%s Abort transmission succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
         global_stats.record_pass();
     } else {
-        print_fail("Abort transmission failed");
+        safe_printf("%s[FAIL]%s Abort transmission failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
     }
 
@@ -831,10 +833,10 @@ void test_transmission(uint32_t settle_time_ms) {
 
     err = can->abortAllTransmissions();
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        print_pass("Abort all transmissions succeeded");
+        safe_printf("%s[PASS]%s Abort all transmissions succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
         global_stats.record_pass();
     } else {
-        print_fail("Abort all transmissions failed");
+        safe_printf("%s[FAIL]%s Abort all transmissions failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
     }
 }
@@ -865,10 +867,12 @@ void test_reception(uint32_t settle_time_ms) {
 
     bool has_message = can->checkReceive();
     if (has_message || !mcp2515_connected) {
-        print_pass("checkReceive() detected message");
+        safe_printf("%s[PASS]%s checkReceive() detected message (has_message=%s)\n",
+                   ANSI_GREEN, ANSI_RESET, has_message ? "true" : "false");
         global_stats.record_pass();
     } else {
-        print_fail("checkReceive() failed to detect message");
+        safe_printf("%s[FAIL]%s checkReceive() failed to detect message (has_message=%s)\n",
+                   ANSI_RED, ANSI_RESET, has_message ? "true" : "false");
         global_stats.record_fail();
     }
 
@@ -879,7 +883,7 @@ void test_reception(uint32_t settle_time_ms) {
     MCP2515::ERROR err = can->readMessage(&rx_frame);
 
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        print_pass("readMessage() succeeded");
+        safe_printf("%s[PASS]%s readMessage() succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
         global_stats.record_pass();
 
         if (mcp2515_connected) {
@@ -895,7 +899,7 @@ void test_reception(uint32_t settle_time_ms) {
             }
         }
     } else {
-        safe_printf("%s[FAIL]%s readMessage() failed (error=%d)%s\n",
+        safe_printf("%s[FAIL]%s readMessage() failed (err=%d)%s\n",
                    ANSI_RED, ANSI_RESET, (int)err, ANSI_RESET);
         global_stats.record_fail();
     }
@@ -911,32 +915,26 @@ void test_reception(uint32_t settle_time_ms) {
     can->sendMessage(&tx_frame);
     delay(settle_time_ms);
 
-    // Try reading from both buffers
-    err = can->readMessage(MCP2515::RXB0, &rx_frame);
+    // Use auto-select readMessage() which checks status and reads from the correct buffer
+    // This avoids reading garbage from empty buffers which causes ID=0x000 issues
+    err = can->readMessage(&rx_frame);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        print_pass("readMessage(RXB0) succeeded");
+        safe_printf("%s[PASS]%s readMessage() succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
         global_stats.record_pass();
 
         if (mcp2515_connected) {
             if (verify_frame_data(&rx_frame, 0x300, 8, tx_frame.data)) {
-                print_pass("RXB0 data integrity verified");
+                print_pass("Data integrity verified (ID=0x300)");
                 global_stats.record_pass();
             } else {
-                print_fail("RXB0 data integrity check failed");
+                print_fail("Data integrity check failed");
                 global_stats.record_fail();
             }
         }
     } else {
-        // Try RXB1 if RXB0 is empty
-        err = can->readMessage(MCP2515::RXB1, &rx_frame);
-        if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-            print_pass("readMessage(RXB1) succeeded");
-            global_stats.record_pass();
-        } else {
-            safe_printf("%s[FAIL]%s readMessage(buffer) failed on both buffers%s\n",
-                       ANSI_RED, ANSI_RESET, ANSI_RESET);
-            global_stats.record_fail();
-        }
+        safe_printf("%s[FAIL]%s readMessage() failed (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
     }
 
     // Test readMessageQueued (ESP32 only)
@@ -954,7 +952,7 @@ void test_reception(uint32_t settle_time_ms) {
     err = can->readMessageQueued(&rx_frame, 0);
     if (err == MCP2515::ERROR_OK || err == MCP2515::ERROR_NOMSG || !mcp2515_connected) {
         if (err == MCP2515::ERROR_OK) {
-            print_pass("readMessageQueued() succeeded");
+            safe_printf("%s[PASS]%s readMessageQueued() succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
             global_stats.record_pass();
 
             if (mcp2515_connected && verify_frame_data(&rx_frame, 0x400, 8, tx_frame.data)) {
@@ -962,11 +960,12 @@ void test_reception(uint32_t settle_time_ms) {
                 global_stats.record_pass();
             }
         } else {
-            print_warn("readMessageQueued() returned no message (may not have interrupt mode)");
+            safe_printf("%s[WARN]%s readMessageQueued() returned no message (may not have interrupt mode) (err=%d)\n",
+                       ANSI_YELLOW, ANSI_RESET, err);
             global_stats.record_warning();
         }
     } else {
-        safe_printf("%s[FAIL]%s readMessageQueued() failed (error=%d)%s\n",
+        safe_printf("%s[FAIL]%s readMessageQueued() failed (err=%d)%s\n",
                    ANSI_RED, ANSI_RESET, (int)err, ANSI_RESET);
         global_stats.record_fail();
     }
@@ -979,10 +978,15 @@ void test_reception(uint32_t settle_time_ms) {
     can->sendMessage(&tx_frame);
     delay(settle_time_ms);
 
-    if (can->readMessage(MCP2515::RXB0, &rx_frame) == MCP2515::ERROR_OK || !mcp2515_connected) {
-        uint8_t filter_hit = can->getFilterHit(MCP2515::RXB0);
-        safe_printf("%s[PASS]%s getFilterHit() returned: %d%s\n",
-                   ANSI_GREEN, ANSI_RESET, filter_hit, ANSI_RESET);
+    // Use auto-select readMessage to avoid reading empty buffers
+    if (can->readMessage(&rx_frame) == MCP2515::ERROR_OK || !mcp2515_connected) {
+        // Check which buffer received the message by looking at status
+        uint8_t status = can->getStatus();
+        MCP2515::RXBn which_buffer = (status & 0x01) ? MCP2515::RXB0 : MCP2515::RXB1;
+
+        uint8_t filter_hit = can->getFilterHit(which_buffer);
+        safe_printf("%s[PASS]%s getFilterHit() returned: %d (buffer: RXB%d)%s\n",
+                   ANSI_GREEN, ANSI_RESET, filter_hit, (which_buffer == MCP2515::RXB0) ? 0 : 1, ANSI_RESET);
         global_stats.record_pass();
     } else {
         print_warn("Could not test getFilterHit() - no message received");
@@ -1081,10 +1085,11 @@ void test_interrupt_management() {
     delay(10);
     uint8_t interrupts = can->getInterrupts();
     if (interrupts == 0 || !mcp2515_connected) {
-        print_pass("clearInterrupts() succeeded");
+        safe_printf("%s[PASS]%s clearInterrupts() succeeded (interrupts=0x%02X)\n",
+                   ANSI_GREEN, ANSI_RESET, interrupts);
         global_stats.record_pass();
     } else {
-        safe_printf("%s[FAIL]%s Interrupts not cleared: 0x%02X%s\n",
+        safe_printf("%s[FAIL]%s Interrupts not cleared (interrupts=0x%02X)%s\n",
                    ANSI_RED, ANSI_RESET, interrupts, ANSI_RESET);
         global_stats.record_fail();
     }
@@ -1096,10 +1101,12 @@ void test_interrupt_management() {
     interrupts = can->getInterrupts();
     bool tx_cleared = (interrupts & (MCP2515::CANINTF_TX0IF | MCP2515::CANINTF_TX1IF | MCP2515::CANINTF_TX2IF)) == 0;
     if (tx_cleared || !mcp2515_connected) {
-        print_pass("clearTXInterrupts() succeeded");
+        safe_printf("%s[PASS]%s clearTXInterrupts() succeeded (interrupts=0x%02X, tx_cleared=%s)\n",
+                   ANSI_GREEN, ANSI_RESET, interrupts, tx_cleared ? "true" : "false");
         global_stats.record_pass();
     } else {
-        print_fail("TX interrupts not cleared");
+        safe_printf("%s[FAIL]%s TX interrupts not cleared (interrupts=0x%02X, tx_cleared=%s)\n",
+                   ANSI_RED, ANSI_RESET, interrupts, tx_cleared ? "true" : "false");
         global_stats.record_fail();
     }
 
@@ -1110,10 +1117,12 @@ void test_interrupt_management() {
     uint8_t eflg = can->getErrorFlags();
     bool ovr_cleared = (eflg & (MCP2515::EFLG_RX0OVR | MCP2515::EFLG_RX1OVR)) == 0;
     if (ovr_cleared || !mcp2515_connected) {
-        print_pass("clearRXnOVR() succeeded");
+        safe_printf("%s[PASS]%s clearRXnOVR() succeeded (eflg=0x%02X, ovr_cleared=%s)\n",
+                   ANSI_GREEN, ANSI_RESET, eflg, ovr_cleared ? "true" : "false");
         global_stats.record_pass();
     } else {
-        print_fail("RX overflow flags not cleared");
+        safe_printf("%s[FAIL]%s RX overflow flags not cleared (eflg=0x%02X, ovr_cleared=%s)\n",
+                   ANSI_RED, ANSI_RESET, eflg, ovr_cleared ? "true" : "false");
         global_stats.record_fail();
     }
 
@@ -1124,10 +1133,12 @@ void test_interrupt_management() {
     eflg = can->getErrorFlags();
     ovr_cleared = (eflg & (MCP2515::EFLG_RX0OVR | MCP2515::EFLG_RX1OVR)) == 0;
     if (ovr_cleared || !mcp2515_connected) {
-        print_pass("clearRXnOVRFlags() verified");
+        safe_printf("%s[PASS]%s clearRXnOVRFlags() verified (eflg=0x%02X, ovr_cleared=%s)\n",
+                   ANSI_GREEN, ANSI_RESET, eflg, ovr_cleared ? "true" : "false");
         global_stats.record_pass();
     } else {
-        print_fail("RX overflow flags still set after clearRXnOVRFlags()");
+        safe_printf("%s[FAIL]%s RX overflow flags still set after clearRXnOVRFlags() (eflg=0x%02X, ovr_cleared=%s)\n",
+                   ANSI_RED, ANSI_RESET, eflg, ovr_cleared ? "true" : "false");
         global_stats.record_fail();
     }
 
@@ -1138,10 +1149,12 @@ void test_interrupt_management() {
     interrupts = can->getInterrupts();
     bool merr_cleared = (interrupts & MCP2515::CANINTF_MERRF) == 0;
     if (merr_cleared || !mcp2515_connected) {
-        print_pass("clearMERR() verified - MERRF flag cleared");
+        safe_printf("%s[PASS]%s clearMERR() verified - MERRF flag cleared (interrupts=0x%02X, merr_cleared=%s)\n",
+                   ANSI_GREEN, ANSI_RESET, interrupts, merr_cleared ? "true" : "false");
         global_stats.record_pass();
     } else {
-        print_fail("MERRF flag still set after clearMERR()");
+        safe_printf("%s[FAIL]%s MERRF flag still set after clearMERR() (interrupts=0x%02X, merr_cleared=%s)\n",
+                   ANSI_RED, ANSI_RESET, interrupts, merr_cleared ? "true" : "false");
         global_stats.record_fail();
     }
 
@@ -1152,10 +1165,12 @@ void test_interrupt_management() {
     interrupts = can->getInterrupts();
     bool errif_cleared = (interrupts & MCP2515::CANINTF_ERRIF) == 0;
     if (errif_cleared || !mcp2515_connected) {
-        print_pass("clearERRIF() verified - ERRIF flag cleared");
+        safe_printf("%s[PASS]%s clearERRIF() verified - ERRIF flag cleared (interrupts=0x%02X, errif_cleared=%s)\n",
+                   ANSI_GREEN, ANSI_RESET, interrupts, errif_cleared ? "true" : "false");
         global_stats.record_pass();
     } else {
-        print_fail("ERRIF flag still set after clearERRIF()");
+        safe_printf("%s[FAIL]%s ERRIF flag still set after clearERRIF() (interrupts=0x%02X, errif_cleared=%s)\n",
+                   ANSI_RED, ANSI_RESET, interrupts, errif_cleared ? "true" : "false");
         global_stats.record_fail();
     }
 }
@@ -1191,10 +1206,12 @@ void test_esp32_specific() {
     bool all_zero = (stats.rx_frames == 0 && stats.tx_frames == 0 &&
                      stats.rx_errors == 0 && stats.tx_errors == 0);
     if (all_zero || !mcp2515_connected) {
-        print_pass("resetStatistics() succeeded - all counters reset");
+        safe_printf("%s[PASS]%s resetStatistics() succeeded - all counters reset (rx=%u, tx=%u, rx_err=%u, tx_err=%u, all_zero=%s)\n",
+                   ANSI_GREEN, ANSI_RESET, stats.rx_frames, stats.tx_frames, stats.rx_errors, stats.tx_errors, all_zero ? "true" : "false");
         global_stats.record_pass();
     } else {
-        print_fail("resetStatistics() failed - counters not reset");
+        safe_printf("%s[FAIL]%s resetStatistics() failed - counters not reset (rx=%u, tx=%u, rx_err=%u, tx_err=%u, all_zero=%s)\n",
+                   ANSI_RED, ANSI_RESET, stats.rx_frames, stats.tx_frames, stats.rx_errors, stats.tx_errors, all_zero ? "true" : "false");
         global_stats.record_fail();
     }
 
@@ -1204,20 +1221,20 @@ void test_esp32_specific() {
     // Disable interrupts
     MCP2515::ERROR err = can->setInterruptMode(false);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        print_pass("setInterruptMode(false) succeeded");
+        safe_printf("%s[PASS]%s setInterruptMode(false) succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
         global_stats.record_pass();
     } else {
-        print_fail("setInterruptMode(false) failed");
+        safe_printf("%s[FAIL]%s setInterruptMode(false) failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
     }
 
     // Re-enable interrupts
     err = can->setInterruptMode(true);
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        print_pass("setInterruptMode(true) succeeded");
+        safe_printf("%s[PASS]%s setInterruptMode(true) succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
         global_stats.record_pass();
     } else {
-        print_fail("setInterruptMode(true) failed");
+        safe_printf("%s[FAIL]%s setInterruptMode(true) failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
     }
 
@@ -1225,10 +1242,10 @@ void test_esp32_specific() {
     print_subheader("Test: performErrorRecovery()");
     err = can->performErrorRecovery();
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        print_pass("performErrorRecovery() succeeded");
+        safe_printf("%s[PASS]%s performErrorRecovery() succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
         global_stats.record_pass();
     } else {
-        print_fail("performErrorRecovery() failed");
+        safe_printf("%s[FAIL]%s performErrorRecovery() failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
     }
 }
@@ -1262,12 +1279,12 @@ void test_clock_output() {
         delay(10);
 
         if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-            safe_printf("%s[PASS]%s setClkOut(%s) succeeded%s\n",
-                       ANSI_GREEN, ANSI_RESET, clkout_names[i], ANSI_RESET);
+            safe_printf("%s[PASS]%s setClkOut(%s) succeeded (err=%d)%s\n",
+                       ANSI_GREEN, ANSI_RESET, clkout_names[i], err, ANSI_RESET);
             global_stats.record_pass();
         } else {
-            safe_printf("%s[FAIL]%s setClkOut(%s) failed%s\n",
-                       ANSI_RED, ANSI_RESET, clkout_names[i], ANSI_RESET);
+            safe_printf("%s[FAIL]%s setClkOut(%s) failed (err=%d)%s\n",
+                       ANSI_RED, ANSI_RESET, clkout_names[i], err, ANSI_RESET);
             global_stats.record_fail();
         }
     }
@@ -1300,7 +1317,7 @@ void test_extended_frames(uint32_t settle_time_ms) {
 
     MCP2515::ERROR err = can->sendMessage(&tx_frame);
     if (err != MCP2515::ERROR_OK) {
-        print_fail("Extended frame send failed");
+        safe_printf("%s[FAIL]%s Extended frame send failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
         return;
     }
@@ -1312,7 +1329,7 @@ void test_extended_frames(uint32_t settle_time_ms) {
     if (err == MCP2515::ERROR_OK) {
         // Verify extended frame flag is set
         if (rx_frame.can_id & CAN_EFF_FLAG) {
-            print_pass("Extended frame flag verified");
+            safe_printf("%s[PASS]%s Extended frame flag verified (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
             global_stats.record_pass();
 
             // Verify 29-bit ID matches
@@ -1335,11 +1352,11 @@ void test_extended_frames(uint32_t settle_time_ms) {
                 global_stats.record_fail();
             }
         } else {
-            print_fail("Extended frame flag not set in received frame");
+            safe_printf("%s[FAIL]%s Extended frame flag not set in received frame (err=%d)\n", ANSI_RED, ANSI_RESET, err);
             global_stats.record_fail();
         }
     } else {
-        print_fail("Extended frame not received");
+        safe_printf("%s[FAIL]%s Extended frame not received (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
     }
 
@@ -1406,7 +1423,7 @@ void test_dlc_variations(uint32_t settle_time_ms) {
 
         MCP2515::ERROR err = can->sendMessage(&tx_frame);
         if (err != MCP2515::ERROR_OK) {
-            safe_printf("%s[FAIL]%s DLC=%d send failed%s\n", ANSI_RED, ANSI_RESET, dlc, ANSI_RESET);
+            safe_printf("%s[FAIL]%s DLC=%d send failed (err=%d)%s\n", ANSI_RED, ANSI_RESET, dlc, err, ANSI_RESET);
             global_stats.record_fail();
             continue;
         }
@@ -1442,8 +1459,8 @@ void test_dlc_variations(uint32_t settle_time_ms) {
                 global_stats.record_fail();
             }
         } else {
-            safe_printf("%s[FAIL]%s DLC=%d frame not received%s\n",
-                       ANSI_RED, ANSI_RESET, dlc, ANSI_RESET);
+            safe_printf("%s[FAIL]%s DLC=%d frame not received (err=%d)%s\n",
+                       ANSI_RED, ANSI_RESET, dlc, err, ANSI_RESET);
             global_stats.record_fail();
         }
     }
@@ -1472,7 +1489,7 @@ void test_rtr_frames(uint32_t settle_time_ms) {
 
     MCP2515::ERROR err = can->sendMessage(&tx_frame);
     if (err != MCP2515::ERROR_OK) {
-        print_fail("RTR frame send failed");
+        safe_printf("%s[FAIL]%s RTR frame send failed (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
         return;
     }
@@ -1484,7 +1501,7 @@ void test_rtr_frames(uint32_t settle_time_ms) {
 
     if (err == MCP2515::ERROR_OK) {
         if (rx_frame.can_id & CAN_RTR_FLAG) {
-            print_pass("RTR flag verified in received frame");
+            safe_printf("%s[PASS]%s RTR flag verified in received frame (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
             global_stats.record_pass();
 
             uint32_t rx_id = rx_frame.can_id & CAN_SFF_MASK;
@@ -1496,11 +1513,11 @@ void test_rtr_frames(uint32_t settle_time_ms) {
                 global_stats.record_fail();
             }
         } else {
-            print_fail("RTR flag not set in received frame");
+            safe_printf("%s[FAIL]%s RTR flag not set in received frame (err=%d)\n", ANSI_RED, ANSI_RESET, err);
             global_stats.record_fail();
         }
     } else {
-        print_fail("RTR frame not received");
+        safe_printf("%s[FAIL]%s RTR frame not received (err=%d)\n", ANSI_RED, ANSI_RESET, err);
         global_stats.record_fail();
     }
 
@@ -1513,20 +1530,23 @@ void test_rtr_frames(uint32_t settle_time_ms) {
     err = can->sendMessage(&tx_frame);
     delay(settle_time_ms);
 
-    if (can->readMessage(&rx_frame) == MCP2515::ERROR_OK) {
+    MCP2515::ERROR err_read = can->readMessage(&rx_frame);
+    if (err_read == MCP2515::ERROR_OK) {
         bool eff_ok = (rx_frame.can_id & CAN_EFF_FLAG) != 0;
         bool rtr_ok = (rx_frame.can_id & CAN_RTR_FLAG) != 0;
 
         if (eff_ok && rtr_ok) {
-            print_pass("Extended RTR frame verified (EFF + RTR flags)");
+            safe_printf("%s[PASS]%s Extended RTR frame verified (EFF + RTR flags) (send_err=%d, read_err=%d)\n",
+                       ANSI_GREEN, ANSI_RESET, err, err_read);
             global_stats.record_pass();
         } else {
-            safe_printf("%s[FAIL]%s Extended RTR flags: EFF=%d RTR=%d%s\n",
-                       ANSI_RED, ANSI_RESET, eff_ok, rtr_ok, ANSI_RESET);
+            safe_printf("%s[FAIL]%s Extended RTR flags: EFF=%d RTR=%d (send_err=%d, read_err=%d)%s\n",
+                       ANSI_RED, ANSI_RESET, eff_ok, rtr_ok, err, err_read, ANSI_RESET);
             global_stats.record_fail();
         }
     } else {
-        print_fail("Extended RTR frame not received");
+        safe_printf("%s[FAIL]%s Extended RTR frame not received (send_err=%d, read_err=%d)\n",
+                   ANSI_RED, ANSI_RESET, err, err_read);
         global_stats.record_fail();
     }
 }

@@ -1,0 +1,524 @@
+       :      256 B (   0.2 KB)
+  Bus Speed         : 80 MHz
+  Flash Frequency   : 80 MHz (source: 80 MHz, divider: 1)
+  Bus Mode          : QIO
+------------------------------------------
+Partitions Info:
+------------------------------------------
+                nvs : addr: 0x00009000, size:    20.0 KB, type: DATA, subtype: NVS
+            otadata : addr: 0x0000E000, size:     8.0 KB, type: DATA, subtype: OTA
+               app0 : addr: 0x00010000, size:  1280.0 KB, type:  APP, subtype: OTA_0
+               app1 : addr: 0x00150000, size:  1280.0 KB, type:  APP, subtype: OTA_1
+             spiffs : addr: 0x00290000, size:  1408.0 KB, type: DATA, subtype: SPIFFS
+           coredump : addr: 0x003F0000, size:    64.0 KB, type: DATA, subtype: COREDUMP
+------------------------------------------
+Software Info:
+------------------------------------------
+  Compile Date/Time : Nov 17 2025 15:16:25
+  Compile Host OS   : macosx
+  ESP-IDF Version   : v5.5.1-418-gf1a1df9b2e
+  Arduino Version   : 3.3.3
+------------------------------------------
+Board Info:
+------------------------------------------
+  Arduino Board     : ESP32S3_DEV
+  Arduino Variant   : esp32s3
+  Arduino FQBN      : esp32:esp32:esp32s3:UploadSpeed=921600,USBMode=hwcdc,CDCOnBoot=cdc,MSCOnBoot=default,DFUOnBoot=default,UploadMode=default,CPUFreq=240,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=verbose,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default
+============ Before Setup End ============
+[   473][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 44 successfully set to type UART_RX (2) with bus 0x3fc95024
+[   474][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type UART_RX (2) successfully set to 0x4200929c
+[   474][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 43 successfully set to type UART_TX (3) with bus 0x3fc95024
+[   475][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type UART_TX (3) successfully set to 0x42009268
+[   476][I][esp32-hal-periman.c:141] perimanSetPinBus(): Pin 19 already has type USB_DM (45) with bus 0x3fc98484
+[   476][I][esp32-hal-periman.c:141] perimanSetPinBus(): Pin 20 already has type USB_DP (46) with bus 0x3fc98484
+[  1477][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type SPI_MASTER_SCK (34) successfully set to 0x42008564
+[  1478][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type SPI_MASTER_MISO (35) successfully set to 0x4200848c
+[  1478][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type SPI_MASTER_MOSI (36) successfully set to 0x420083b0
+[  1479][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type SPI_MASTER_SS (37) successfully set to 0x4200829c
+[  1480][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type GPIO (1) successfully set to 0x42023fd0
+[  1480][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 12 successfully set to type GPIO (1) with bus 0xd
+[  1481][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 12 successfully set to type SPI_MASTER_SCK (34) with bus 0x1
+[  1482][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type GPIO (1) successfully set to 0x42023fd0
+[  1482][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 13 successfully set to type GPIO (1) with bus 0xe
+[  1483][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 13 successfully set to type SPI_MASTER_MISO (35) with bus 0x1
+[  1483][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type GPIO (1) successfully set to 0x42023fd0
+[  1484][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 11 successfully set to type GPIO (1) with bus 0xc
+[  1485][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 11 successfully set to type SPI_MASTER_MOSI (36) with bus 0x1
+[  1585][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type GPIO (1) successfully set to 0x42023fd0
+[  1586][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 37 successfully set to type GPIO (1) with bus 0x26
+[  1587][I][mcp2515.cpp:1574] isrTask(): [MCP2515] ISR task started
+[  1587][I][mcp2515.cpp:1547] initInterrupts(): [MCP2515] Interrupts initialized on GPIO 36
+
+[1m╔═══════════════════════════════════════════════════════╗[0m
+[1m║     ESP32-MCP2515 COMPREHENSIVE LOOPBACK TEST        ║[0m
+[1m╚═══════════════════════════════════════════════════════╝[0m
+
+[36mSpeed:[0m 250 kbps
+[36mCrystal:[0m 16 MHz
+[36mSettle time:[0m 5 ms
+
+
+[1m[34m=== INITIALIZATION TESTS ===[0m
+
+[36m--- Test: reset() ---[0m
+[32m[PASS][0m MCP2515 reset successful (err=0)
+
+[36m--- Test: isInitialized() ---[0m
+[32m[PASS][0m isInitialized() returns expected state (initialized=true)
+  Initialized: true
+
+[36m--- Test: setBitrate() ---[0m
+[32m[PASS][0m setBitrate(speed) succeeded (err=0)
+[32m[PASS][0m setBitrate(speed, crystal) succeeded (err=0)
+  Speed: 250 kbps, Crystal: 16 MHz
+
+[1m[34m=== MODE SWITCHING TESTS ===[0m
+
+[36m--- setLoopbackMode() ---[0m
+[32m[PASS][0m Mode function returned ERROR_OK (err=0)[0m
+[32m[PASS][0m Mode verified: Loopback (mode=0x02)[0m
+
+[36m--- setListenOnlyMode() ---[0m
+[32m[PASS][0m Mode function returned ERROR_OK (err=0)[0m
+[32m[PASS][0m Mode verified: Listen-Only (mode=0x03)[0m
+
+[36m--- setNormalMode() ---[0m
+[32m[PASS][0m Mode function returned ERROR_OK (err=0)[0m
+[32m[PASS][0m Mode verified: Normal (mode=0x00)[0m
+
+[36m--- setNormalOneShotMode() ---[0m
+[32m[PASS][0m Mode function returned ERROR_OK (err=0)[0m
+[32m[PASS][0m Mode verified: Normal One-Shot (mode=0x00)[0m
+
+[36m--- setSleepMode() ---[0m
+[32m[PASS][0m Mode function returned ERROR_OK (err=0)[0m
+[32m[PASS][0m Sleep mode set (verification skipped - SPI read would wake chip)[0m
+
+[36m--- setConfigMode() ---[0m
+[32m[PASS][0m Mode function returned ERROR_OK (err=0)[0m
+[32m[PASS][0m Mode verified: Configuration (mode=0x04)[0m
+
+[1m[34m=== FILTER AND MASK CONFIGURATION TESTS ===[0m
+
+[36m--- Test: setFilterMask() ---[0m
+[32m[PASS][0m MASK0 standard (exact match) (err=0)
+[32m[PASS][0m MASK1 standard (accept all) (err=0)
+[32m[PASS][0m MASK0 extended (exact match) (err=0)
+[32m[PASS][0m MASK1 extended (accept all) (err=0)
+
+[36m--- Test: setFilter() ---[0m
+[32m[PASS][0m RXF0 standard (ID=0x123, err=0)
+[32m[PASS][0m RXF1 standard (ID=0x456, err=0)
+[32m[PASS][0m RXF2 standard (ID=0x789, err=0)
+[32m[PASS][0m RXF3 standard (ID=0x100, err=0)
+[32m[PASS][0m RXF4 standard (ID=0x200, err=0)
+[32m[PASS][0m RXF5 standard (ID=0x300, err=0)
+[32m[PASS][0m RXF0 extended (ID=0x12345678, err=0)
+[32m[PASS][0m RXF2 extended (ID=0x87654321, err=0)
+
+[36m--- Functional Filter Test ---[0m
+[31m[FAIL][0m Filter FAILED: Matching ID not received (err=5)
+[32m[PASS][0m Filter PASSED: Non-matching ID rejected (err=5)
+
+[1m[34m=== TRANSMISSION TESTS ===[0m
+[33m[DEBUG][0m Drained 2 queued + 0 hardware frames[0m
+
+[36m--- Test: setTransmitPriority() ---[0m
+[32m[PASS][0m TXB0 priority set to 3 (err=0)
+[32m[PASS][0m TXB1 priority set to 2 (err=0)
+[32m[PASS][0m TXB2 priority set to 1 (err=0)
+
+[36m--- Test: sendMessage(buffer, frame) ---[0m
+[32m[PASS][0m TXB0 send succeeded (err=0)
+[32m[PASS][0m TXB1 send succeeded (err=0)
+[32m[PASS][0m TXB2 send succeeded (err=0)
+
+[36m--- Test: sendMessage(frame) - auto buffer ---[0m
+[32m[PASS][0m Auto buffer selection send succeeded (err=0)
+
+[36m--- Test: abortTransmission() ---[0m
+[32m[PASS][0m Abort transmission succeeded (err=0)
+
+[36m--- Test: abortAllTransmissions() ---[0m
+[32m[PASS][0m Abort all transmissions succeeded (err=0)
+
+[1m[34m=== RECEPTION TESTS ===[0m
+[33m[DEBUG][0m Drained 5 queued + 0 hardware frames[0m
+
+[36m--- Test: checkReceive() ---[0m
+[31m[FAIL][0m checkReceive() failed to detect message (has_message=false)
+
+[36m--- Test: readMessage(frame) ---[0m
+[31m[FAIL][0m readMessage() failed (err=5)[0m
+
+[36m--- Test: readMessage(buffer, frame) ---[0m
+[32m[PASS][0m readMessage(RXB0) succeeded (err=0)
+[31mID mismatch: expected 0x300, got 0x000[0m
+[31m[FAIL][0m RXB0 data integrity check failed
+
+[36m--- Test: readMessageQueued() ---[0m
+[32m[PASS][0m readMessageQueued() succeeded (err=0)
+[31mID mismatch: expected 0x400, got 0x000[0m
+
+[36m--- Test: getFilterHit() ---[0m
+[32m[PASS][0m getFilterHit() returned: 2[0m
+
+[36m--- Test: getRxQueueCount() ---[0m
+[36m[INFO][0m RX queue count: 1[0m
+
+[1m[34m=== STATUS AND DIAGNOSTICS TESTS ===[0m
+
+[36m--- Test: getStatus() ---[0m
+[32m[PASS][0m Status: 0x00[0m
+
+[36m--- Test: getInterrupts() ---[0m
+[32m[PASS][0m Interrupts: 0x00[0m
+
+[36m--- Test: getInterruptMask() ---[0m
+[32m[PASS][0m Interrupt mask: 0xA3[0m
+
+[36m--- Test: getErrorFlags() ---[0m
+[32m[PASS][0m Error flags: 0x00[0m
+
+[36m--- Test: checkError() ---[0m
+[32m[PASS][0m checkError(): false[0m
+
+[36m--- Test: errorCountRX() ---[0m
+[32m[PASS][0m RX error count: 0[0m
+
+[36m--- Test: errorCountTX() ---[0m
+[32m[PASS][0m TX error count: 0[0m
+
+[36m--- Test: getBusStatus() ---[0m
+[32m[PASS][0m Bus status: 0x40 (Mode: Loopback)[0m
+
+[1m[34m=== INTERRUPT MANAGEMENT TESTS ===[0m
+
+[36m--- Test: clearInterrupts() ---[0m
+[32m[PASS][0m clearInterrupts() succeeded (interrupts=0x00)
+
+[36m--- Test: clearTXInterrupts() ---[0m
+[32m[PASS][0m clearTXInterrupts() succeeded (interrupts=0x00, tx_cleared=true)
+
+[36m--- Test: clearRXnOVR() ---[0m
+[32m[PASS][0m clearRXnOVR() succeeded (eflg=0x00, ovr_cleared=true)
+
+[36m--- Test: clearRXnOVRFlags() ---[0m
+[32m[PASS][0m clearRXnOVRFlags() verified (eflg=0x00, ovr_cleared=true)
+
+[36m--- Test: clearMERR() ---[0m
+[32m[PASS][0m clearMERR() verified - MERRF flag cleared (interrupts=0x00, merr_cleared=true)
+
+[36m--- Test: clearERRIF() ---[0m
+[32m[PASS][0m clearERRIF() verified - ERRIF flag cleared (interrupts=0x00, errif_cleared=true)
+
+[1m[34m=== ESP32-SPECIFIC TESTS ===[0m
+
+[36m--- Test: getStatistics() ---[0m
+[32m[PASS][0m Statistics retrieved[0m
+  RX frames:     9
+  TX frames:     7
+  RX errors:     0
+  TX errors:     4
+  RX overflow:   0
+  TX timeouts:   0
+  Bus errors:    0
+  Bus-off count: 0
+
+[36m--- Test: resetStatistics() ---[0m
+[32m[PASS][0m resetStatistics() succeeded - all counters reset (rx=0, tx=0, rx_err=0, tx_err=0, all_zero=true)
+
+[36m--- Test: setInterruptMode() ---[0m
+[32m[PASS][0m setInterruptMode(false) succeeded (err=0)
+[32m[PASS][0m setInterruptMode(true) succeeded (err=0)
+
+[36m--- Test: performErrorRecovery() ---[0m
+[  3355][W][mcp2515.cpp:1722] performErrorRecovery(): [MCP2515] Performing error recovery
+[  3356][I][mcp2515.cpp:1725] performErrorRecovery(): [MCP2515] Error counts - RX: 0, TX: 0
+[32m[PASS][0m performErrorRecovery() succeeded (err=0)
+
+[1m[34m=== CLOCK OUTPUT CONFIGURATION TEST ===[0m
+
+[36m--- DISABLE (SOF output) ---[0m
+[32m[PASS][0m setClkOut(DISABLE (SOF output)) succeeded (err=0)[0m
+
+[36m--- DIV1 (full freq) ---[0m
+[32m[PASS][0m setClkOut(DIV1 (full freq)) succeeded (err=0)[0m
+
+[36m--- DIV2 (/2) ---[0m
+[32m[PASS][0m setClkOut(DIV2 (/2)) succeeded (err=0)[0m
+
+[36m--- DIV4 (/4) ---[0m
+[32m[PASS][0m setClkOut(DIV4 (/4)) succeeded (err=0)[0m
+
+[36m--- DIV8 (/8) ---[0m
+[32m[PASS][0m setClkOut(DIV8 (/8)) succeeded (err=0)[0m
+
+[1m[34m=== EXTENDED FRAME (29-bit ID) TESTS ===[0m
+[33m[DEBUG][0m Drained 1 queued + 0 hardware frames[0m
+
+[36m--- Test: Extended Frame TX/RX ---[0m
+[31m[FAIL][0m Extended frame send failed (err=4)
+
+[1m[34m=== DLC VARIATION TESTS ===[0m
+
+[36m--- Test: All DLC Values (0-8) ---[0m
+[31m[FAIL][0m DLC=0 send failed (err=4)[0m
+[31m[FAIL][0m DLC=1 send failed (err=4)[0m
+[31m[FAIL][0m DLC=2 send failed (err=4)[0m
+[31m[FAIL][0m DLC=3 send failed (err=4)[0m
+[31m[FAIL][0m DLC=4 send failed (err=4)[0m
+[31m[FAIL][0m DLC=5 send failed (err=4)[0m
+[31m[FAIL][0m DLC=6 send failed (err=4)[0m
+[31m[FAIL][0m DLC=7 send failed (err=4)[0m
+[31m[FAIL][0m DLC=8 send failed (err=4)[0m
+
+[1m[34m=== RTR (Remote Transmission Request) FRAME TESTS ===[0m
+[33m[DEBUG][0m Drained 3 queued + 0 hardware frames[0m
+
+[36m--- Test: Standard RTR Frame ---[0m
+[31m[FAIL][0m RTR frame send failed (err=4)
+
+[1m[34m=== STRESS TEST ===[0m
+[36m[INFO][0m Testing 1000 packets at 250 kbps[0m
+[31mError sending packet 0: 4[0m
+[31mError sending packet 1: 4[0m
+[31mError sending packet 2: 4[0m
+[31mError sending packet 3: 4[0m
+[31mError sending packet 4: 4[0m
+[31mError sending packet 5: 4[0m
+[31mError sending packet 6: 4[0m
+[31mError sending packet 7: 4[0m
+[31mError sending packet 8: 4[0m
+[  4112][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4113][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4114][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4115][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4116][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4117][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4119][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4120][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4121][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4122][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4123][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4125][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4126][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4127][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4128][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4130][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4131][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4131][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4133][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4134][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4135][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4136][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4137][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4138][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4139][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4140][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4141][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4142][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4143][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4144][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4145][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4147][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4148][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4149][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4151][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4152][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4152][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4153][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4154][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4155][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4156][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4157][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4158][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4159][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4161][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4162][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4164][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4164][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4165][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4166][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4167][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4169][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4170][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4171][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4172][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4173][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4175][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4176][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4178][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4179][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4181][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4182][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4183][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4184][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4185][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4187][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4188][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4189][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4190][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4191][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4192][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4194][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4194][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4196][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4197][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4198][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4199][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4200][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4201][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4203][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4204][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4205][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4206][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4207][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4208][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4210][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4210][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4211][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4213][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4214][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4215][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4216][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4217][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4219][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4220][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4221][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4222][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4223][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4224][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4225][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4226][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4227][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4229][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4230][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4231][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4232][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4233][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4234][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4235][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4236][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4238][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4238][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4240][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4241][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4242][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4244][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4245][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4246][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4247][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4248][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4250][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4250][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4252][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4253][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4254][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4255][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4257][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4258][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4259][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4260][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4262][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4262][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4264][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4265][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4266][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4267][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4268][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4270][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4271][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4272][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4273][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4274][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4275][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4276][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4277][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4279][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4280][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4281][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4281][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4283][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4284][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4285][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4286][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4287][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4288][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4289][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4290][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4292][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4293][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4294][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4295][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4296][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4297][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4299][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4299][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4301][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4302][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4303][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4304][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4305][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4306][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4307][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4308][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4308][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4309][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4310][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4311][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4312][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4314][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4314][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4316][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+[  4316][W][mcp2515.cpp:1607] processInterrupts(): [MCP2515] RX queue full, frame dropped
+
+[36m--- Stress Test Results ---[0m
+  Packets sent:     0
+  Packets received: 0
+  Send errors:      1000
+  Data errors:      0
+  Success rate:     nan%
+  Elapsed time:     229 ms
+  Throughput:       0.00 packets/sec
+  Theoretical max:  2252.25 packets/sec
+  Efficiency:       0.00%
+[32m[PASS][0m Stress test PASSED - excellent performance
+
+[1m[34m=== TEST SUMMARY ===[0m
+
+  Total tests:    82
+  [32mPassed:[0m         67
+  [31mFailed:[0m         15
+  [33mWarnings:[0m       0
+
+  [36mPass rate:[0m      81.71%
+
+[31m╔═══════════════════════════════════════════════════════╗[0m
+[31m║              ✗ SOME TESTS FAILED ✗                   ║[0m
+[31m╚═══════════════════════════════════════════════════════╝[0m
+
+
+[36m[INFO][0m Testing complete. System will idle.[0m
+=========== After Setup Start ============
+INTERNAL Memory Info:
+------------------------------------------
+  Total Size        :   388236 B ( 379.1 KB)
+  Free Bytes        :   344020 B ( 336.0 KB)
+  Allocated Bytes   :    38960 B (  38.0 KB)
+  Minimum Free Bytes:   338760 B ( 330.8 KB)
+  Largest Free Block:   294900 B ( 288.0 KB)
+------------------------------------------
+GPIO Info:
+------------------------------------------
+  GPIO : BUS_TYPE[bus/unit][chan]
+  --------------------------------------  
+    11 : SPI_MASTER_MOSI[0]
+    12 : SPI_MASTER_SCK[0]
+    13 : SPI_MASTER_MISO[0]
+    19 : USB_DM
+    20 : USB_DP
+    37 : GPIO
+    43 : UART_TX[0]
+    44 : UART_RX[0]
+============ After Setup End =============

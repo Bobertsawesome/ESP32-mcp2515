@@ -1062,7 +1062,10 @@ MCP2515::ERROR MCP2515::sendMessage(const TXBn txbn, const struct can_frame *fra
     if ((err = modifyRegister(txbuf->CTRL, TXB_TXREQ, TXB_TXREQ)) != ERROR_OK) return err;
 
     uint8_t ctrl = readRegister(txbuf->CTRL);
-    if ((ctrl & (TXB_ABTF | TXB_MLOA | TXB_TXERR)) != 0) {
+    // Don't check ABTF - it's read-only and may still be set from a previous abort
+    // It will clear itself automatically when transmission completes
+    // Only check for actual errors: MLOA (message lost arbitration) and TXERR (TX error)
+    if ((ctrl & (TXB_MLOA | TXB_TXERR)) != 0) {
 #ifdef ESP32
         portENTER_CRITICAL(&statistics_mutex);
         statistics.tx_errors++;
@@ -1185,16 +1188,20 @@ MCP2515::ERROR MCP2515::abortAllTransmissions(void)
     }
 
     // Clear TX buffer states to make them usable again
-    // Per MCP2515 datasheet: after abort, both ABTF and TXREQ remain set
+    // CRITICAL: Per MCP2515 datasheet Section 3.4, the ABTF flag is READ-ONLY
+    // and cannot be cleared by writing to TXBnCTRL. It automatically clears
+    // when CANCTRL.ABAT is cleared (which happens above).
+    // We can only clear TXREQ to make buffers available.
     for (int i = 0; i < N_TXBUFFERS; i++) {
         const struct TXBn_REGS *txbuf = &TXB[i];
 
-        // Clear ABTF (abort flag) - required to prevent ERROR_FAILTX
-        if ((err = modifyRegister(txbuf->CTRL, TXB_ABTF, 0)) != ERROR_OK) return err;
-
         // Clear TXREQ (transmit request) - required to make buffer available
-        // Without this, all buffers remain "busy" and sendMessage() fails
+        // Note: ABTF will clear itself once CANCTRL.ABAT is cleared
         if ((err = modifyRegister(txbuf->CTRL, TXB_TXREQ, 0)) != ERROR_OK) return err;
+
+        // Give hardware time to clear ABTF flag after ABAT completion
+        // This is automatic per datasheet but may take a few microseconds
+        delay(1);
     }
 
     return ERROR_OK;
@@ -1205,6 +1212,17 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(const RXBn rxbn, struct can_frame 
     // Validate frame pointer to prevent crash on null dereference
     if (frame == nullptr) {
         return ERROR_FAIL;
+    }
+
+    // CRITICAL: Check if the specified buffer actually has a message
+    // Without this check, we'll read garbage (all zeros) from empty buffers
+    // This causes the mysterious ID=0x000 frames in test results
+    uint8_t status = getStatus();
+    uint8_t expected_flag = (rxbn == RXB0) ? STAT_RX0IF : STAT_RX1IF;
+
+    if ((status & expected_flag) == 0) {
+        // Buffer is empty, no message to read
+        return ERROR_NOMSG;
     }
 
     const struct RXBn_REGS *rxb = &RXB[rxbn];
