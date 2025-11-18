@@ -71,8 +71,10 @@ ESP32-mcp2515/
 │   ├── mcp2515.h             # Main MCP2515 driver class header
 │   ├── mcp2515.cpp           # Main MCP2515 driver implementation
 │   ├── mcp2515_esp32_config.h # ESP32-specific configuration
-│   ├── can.h                 # CAN frame structures (Linux SocketCAN compatible)
-│   └── main.cpp              # Comprehensive test suite (PlatformIO)
+│   └── can.h                 # CAN frame structures (Linux SocketCAN compatible)
+├── lib/                       # PlatformIO library directory (contains symlink)
+│   └── ESP32-MCP2515/        # Library symlink for PlatformIO
+│       └── src -> ../../src  # Symlink to library source files
 ├── examples/                  # Example Arduino sketches
 │   ├── CAN_read/             # Basic CAN frame reception example
 │   ├── CAN_write/            # Basic CAN frame transmission example
@@ -92,7 +94,8 @@ ESP32-mcp2515/
 │   ├── PRODUCTION_CRITICAL_FIXES_2025-11-15.md
 │   ├── PLATFORMIO_BUILD_TESTING_GUIDE.md
 │   └── PLATFORMIO_TESTING_METHODOLOGY.md
-└── _Testing/                  # Testing utilities and logs
+└── _Testing/                  # PlatformIO test application and logs
+    ├── main.cpp              # Comprehensive test suite (PlatformIO only)
     ├── README.md             # Testing documentation and workflow
     ├── read_serial.py        # Serial monitoring script for autonomous testing
     └── logs/                 # Test output logs (gitignored, .gitkeep preserved)
