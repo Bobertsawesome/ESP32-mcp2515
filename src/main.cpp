@@ -266,9 +266,13 @@ bool mcp2515_connected = false;
 // Verify CAN frame data integrity
 bool verify_frame_data(const struct can_frame* frame, uint32_t expected_id,
                        uint8_t expected_dlc, const uint8_t* expected_data) {
-    if ((frame->can_id & CAN_SFF_MASK) != expected_id) {
-        safe_printf("%sID mismatch: expected 0x%03lX, got 0x%03lX%s\n",
-                   ANSI_RED, (unsigned long)expected_id, (unsigned long)(frame->can_id & CAN_SFF_MASK), ANSI_RESET);
+    // Use appropriate mask based on whether frame is extended or standard
+    uint32_t id_mask = (frame->can_id & CAN_EFF_FLAG) ? CAN_EFF_MASK : CAN_SFF_MASK;
+    uint32_t actual_id = frame->can_id & id_mask;
+
+    if (actual_id != expected_id) {
+        safe_printf("%sID mismatch: expected 0x%08lX, got 0x%08lX%s\n",
+                   ANSI_RED, (unsigned long)expected_id, (unsigned long)actual_id, ANSI_RESET);
         return false;
     }
 
