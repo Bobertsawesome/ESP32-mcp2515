@@ -849,6 +849,75 @@ void test_transmission(uint32_t settle_time_ms) {
 void test_reception(uint32_t settle_time_ms) {
     print_header("RECEPTION TESTS");
 
+    // DIAGNOSTIC: Test loopback with interrupts disabled to isolate issue
+    print_subheader("DIAGNOSTIC: Loopback in polling mode");
+
+    if (mcp2515_connected) {
+        // Temporarily disable interrupts
+        MCP2515::ERROR err_int_off = can->setInterruptMode(false);
+        delay(50);
+
+        if (err_int_off == MCP2515::ERROR_OK) {
+            safe_printf("%s[INFO]%s Interrupts disabled for polling mode test\n",
+                       ANSI_CYAN, ANSI_RESET);
+
+            // Clear any pending state
+            can->clearInterrupts();
+            delay(20);
+
+            // Send test frame
+            struct can_frame poll_tx;
+            poll_tx.can_id = 0x555;
+            poll_tx.can_dlc = 4;
+            poll_tx.data[0] = 0xAA;
+            poll_tx.data[1] = 0xBB;
+            poll_tx.data[2] = 0xCC;
+            poll_tx.data[3] = 0xDD;
+
+            MCP2515::ERROR send_err = can->sendMessage(&poll_tx);
+            delay(100);  // Extra time for loopback
+
+            // Try reading with polling (no queue)
+            struct can_frame poll_rx;
+            MCP2515::ERROR read_err = can->readMessage(&poll_rx);
+
+            if (read_err == MCP2515::ERROR_OK) {
+                safe_printf("%s[PASS]%s Polling mode: Frame received (ID=0x%03X, DLC=%d)\n",
+                           ANSI_GREEN, ANSI_RESET,
+                           poll_rx.can_id & CAN_SFF_MASK, poll_rx.can_dlc);
+                global_stats.record_pass();
+
+                // Verify data
+                if (poll_rx.can_id == 0x555 && poll_rx.can_dlc == 4 &&
+                    poll_rx.data[0] == 0xAA && poll_rx.data[1] == 0xBB) {
+                    safe_printf("%s[INFO]%s Polling mode: Data verified correct\n",
+                               ANSI_CYAN, ANSI_RESET);
+                } else {
+                    safe_printf("%s[WARN]%s Polling mode: Data mismatch\n",
+                               ANSI_YELLOW, ANSI_RESET);
+                }
+            } else {
+                safe_printf("%s[FAIL]%s Polling mode: No frame received (send_err=%d, read_err=%d)\n",
+                           ANSI_RED, ANSI_RESET, send_err, read_err);
+                safe_printf("%s[INFO]%s This suggests loopback mode itself is broken\n",
+                           ANSI_CYAN, ANSI_RESET);
+                global_stats.record_fail();
+            }
+
+            // Re-enable interrupts
+            MCP2515::ERROR err_int_on = can->setInterruptMode(true);
+            delay(50);
+
+            if (err_int_on != MCP2515::ERROR_OK) {
+                safe_printf("%s[WARN]%s Failed to re-enable interrupts (err=%d)\n",
+                           ANSI_YELLOW, ANSI_RESET, err_int_on);
+            }
+        } else {
+            safe_printf("%s[WARN]%s Failed to disable interrupts (err=%d)\n",
+                       ANSI_YELLOW, ANSI_RESET, err_int_off);
+        }
+    }
+
     // CRITICAL: Drain ALL buffers before test
     drain_all_rx_buffers();
 
@@ -1749,13 +1818,41 @@ void run_full_test_suite(CAN_SPEED speed, CAN_CLOCK crystal) {
 // ARDUINO SETUP AND LOOP
 // ============================================================================
 
+// Wait for user to send any character over serial before starting tests
+// This prevents losing early test output due to serial monitor connection timing
+void wait_for_serial_start() {
+    Serial.println();
+    Serial.println("================================================================================");
+    Serial.println("  ESP32-MCP2515 Comprehensive Test Suite");
+    Serial.println("================================================================================");
+    Serial.println();
+    Serial.println("Press ENTER or send any character to start tests...");
+    Serial.println();
+
+    // Wait for any character
+    while (!Serial.available()) {
+        delay(100);
+    }
+
+    // Clear the serial buffer
+    while (Serial.available()) {
+        Serial.read();
+    }
+
+    Serial.println("[INFO] Starting tests...");
+    Serial.println();
+    delay(500);  // Brief pause for visual clarity
+}
+
 void setup() {
     // Initialize serial
     Serial.begin(115200);
     while (!Serial) {
         delay(10);  // Wait for serial port to connect
     }
-    delay(6500);  // Give time to open serial monitor
+
+    // Wait for user to start tests
+    wait_for_serial_start();
 
     // Create serial mutex
     serial_mutex = xSemaphoreCreateMutex();
