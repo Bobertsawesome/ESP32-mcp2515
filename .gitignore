@@ -29,3 +29,4 @@ test_build/
 
 # Build verification logs
 *.log
+logs/

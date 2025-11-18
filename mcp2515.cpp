@@ -1257,9 +1257,11 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(const RXBn rxbn, struct can_frame 
 #ifdef ESP32
     releaseMutex();
 
+#ifdef MCP2515_DEBUG_RX_VERBOSE
     // DEBUG: Log raw header bytes
     ESP_LOGI(MCP2515_LOG_TAG, "RX%d Header: SIDH=0x%02X SIDL=0x%02X EID8=0x%02X EID0=0x%02X DLC=0x%02X",
              rxbn, tbufdata[0], tbufdata[1], tbufdata[2], tbufdata[3], tbufdata[4]);
+#endif
 #endif
 
     uint32_t id = (tbufdata[MCP_SIDH]<<3) + (tbufdata[MCP_SIDL]>>5);
@@ -1284,7 +1286,7 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(const RXBn rxbn, struct can_frame 
     frame->can_id = id;
     frame->can_dlc = dlc;
 
-#ifdef ESP32
+#ifdef MCP2515_DEBUG_RX_VERBOSE
     // DEBUG: Log parsed values
     ESP_LOGI(MCP2515_LOG_TAG, "RX%d Parsed: ID=0x%03X DLC=%d RTR=%d EXT=%d",
              rxbn, id & CAN_EFF_MASK, dlc,
@@ -1312,6 +1314,7 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(const RXBn rxbn, struct can_frame 
 #ifdef ESP32
     releaseMutex();
 
+#ifdef MCP2515_DEBUG_RX_VERBOSE
     // DEBUG: Log data bytes
     if (dlc > 0) {
         char hex_str[32];
@@ -1321,6 +1324,7 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(const RXBn rxbn, struct can_frame 
         }
         ESP_LOGI(MCP2515_LOG_TAG, "RX%d Data: %s", rxbn, hex_str);
     }
+#endif
 #endif
 
     // Clear the RXnIF interrupt flag
@@ -1340,7 +1344,7 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(struct can_frame *frame)
     ERROR rc;
     uint8_t stat = getStatus();
 
-#ifdef ESP32
+#ifdef MCP2515_DEBUG_RX_VERBOSE
     // DEBUG: Log status byte
     ESP_LOGI(MCP2515_LOG_TAG, "readMessage() stat=0x%02X RX0IF=%d RX1IF=%d",
              stat, (stat & STAT_RX0IF) ? 1 : 0, (stat & STAT_RX1IF) ? 1 : 0);
@@ -1374,6 +1378,17 @@ uint8_t MCP2515::getFilterHit(const RXBn rxbn)
 
 bool MCP2515::checkReceive(void)
 {
+#ifdef ESP32
+    // In interrupt mode, check the queue first since ISR task consumes hardware buffers
+    if (use_interrupts && rx_queue != NULL) {
+        UBaseType_t queue_count = uxQueueMessagesWaiting(rx_queue);
+        if (queue_count > 0) {
+            return true;
+        }
+    }
+#endif
+
+    // Check hardware buffers (for polling mode or if queue is empty)
     uint8_t res = getStatus();
     if ( res & STAT_RXIF_MASK ) {
         return true;

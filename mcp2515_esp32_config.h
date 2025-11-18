@@ -97,6 +97,17 @@
 #endif
 
 // ===========================
+// Debug Configuration
+// ===========================
+
+/** Enable verbose RX debug logging
+ * Uncomment to enable detailed SPI transaction logging for debugging reception issues.
+ * Logs raw header bytes, parsed frame values, and data payload.
+ * WARNING: Significantly increases log output and may affect timing.
+ */
+// #define MCP2515_DEBUG_RX_VERBOSE
+
+// ===========================
 // PSRAM + DMA Safety Check
 // ===========================
 

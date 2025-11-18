@@ -1755,7 +1755,7 @@ void setup() {
     while (!Serial) {
         delay(10);  // Wait for serial port to connect
     }
-    delay(4000);  // Give time to open serial monitor
+    delay(6500);  // Give time to open serial monitor
 
     // Create serial mutex
     serial_mutex = xSemaphoreCreateMutex();
