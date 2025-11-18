@@ -37,6 +37,7 @@
 
 #include <SPI.h>
 #include <mcp2515.h>
+#include <Arduino.h>
 
 // ============================================================================
 // CONFIGURATION
@@ -1754,7 +1755,7 @@ void setup() {
     while (!Serial) {
         delay(10);  // Wait for serial port to connect
     }
-    delay(1000);  // Give time to open serial monitor
+    delay(4000);  // Give time to open serial monitor
 
     // Create serial mutex
     serial_mutex = xSemaphoreCreateMutex();

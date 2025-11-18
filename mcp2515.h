@@ -551,8 +551,7 @@ class MCP2515
         bool                initialized;    ///< Initialization status
         bool                use_interrupts; ///< Interrupt mode enabled
         std::atomic<bool>   shutdown_requested; ///< Flag to signal ISR task to stop (atomic for dual-core safety)
-        CANCTRL_REQOP_MODE  current_mode;   ///< Track current operating mode for loopback detection
-        bool                interrupts_before_loopback; ///< Remember interrupt state before loopback mode
+        CANCTRL_REQOP_MODE  current_mode;   ///< Track current operating mode
 #endif
 
     private:
