@@ -19,13 +19,8 @@
 
 - `CLAUDE.md` (this file) - Project overview and development guide
 - `Documentation/MCP2515.md` - Complete MCP2515 datasheet reference
-- `Documentation/DATASHEET_COMPLIANCE_ANALYSIS.md` - Library compliance analysis
-- `Documentation/ESP32_COMPREHENSIVE_AUDIT_2025-11-15.md` - ESP32-specific comprehensive audit
-- `Documentation/PRODUCTION_CRITICAL_FIXES_2025-11-15.md` - Production bug fixes
 - `Documentation/PLATFORMIO_BUILD_TESTING_GUIDE.md` - Build automation guide for agent development
 - `Documentation/PLATFORMIO_TESTING_METHODOLOGY.md` - Complete testing workflow (build, upload, monitor)
-- `BUILD_VERIFICATION_REPORT.md` - Multi-platform build verification (ESP32 + Arduino)
-- `EMBEDDED_SYSTEMS_AUDIT.md` - Embedded systems audit report
 
 ### Description
 
@@ -99,12 +94,14 @@ ESP32-mcp2515/
 ### Core Files
 
 #### `can.h`
+
 - Defines Linux SocketCAN-compatible structures and constants
 - Main structure: `struct can_frame` with `can_id`, `can_dlc`, and `data[8]`
 - CAN ID flags: `CAN_EFF_FLAG`, `CAN_RTR_FLAG`, `CAN_ERR_FLAG`
 - Frame format masks: `CAN_SFF_MASK` (11-bit), `CAN_EFF_MASK` (29-bit)
 
 #### `mcp2515.h`
+
 - Main driver class definition
 - Bitrate configuration tables for 8 MHz, 16 MHz, and 20 MHz oscillators
 - Enumerations for speeds, clocks, modes, errors, registers, and instructions
@@ -112,6 +109,7 @@ ESP32-mcp2515/
 - Private SPI communication methods and register manipulation
 
 #### `mcp2515.cpp`
+
 - Complete implementation of the MCP2515 driver
 - SPI communication protocol implementation
 - Register read/write operations
@@ -120,6 +118,7 @@ ESP32-mcp2515/
 - Filter and mask configuration
 
 #### `src/main.cpp`
+
 - Comprehensive test suite for library validation
 - Tests initialization, transmission, reception, modes, filters, and stress testing
 - Outputs pass/fail results with detailed diagnostics
@@ -261,6 +260,7 @@ The library follows Arduino Library Specification 1.5:
 The project uses **PlatformIO** for development and testing with zero-friction configuration:
 
 **Build configuration** (`platformio.ini`):
+
 - Library source files build directly from root directory (no copying required)
 - Changes to `mcp2515.cpp`/`mcp2515.h` take effect immediately on next build
 - Test application in `src/main.cpp`
@@ -269,16 +269,19 @@ The project uses **PlatformIO** for development and testing with zero-friction c
 ### Quick Start Commands
 
 **Build only:**
+
 ```bash
 pio run -e esp32-s3
 ```
 
 **Build and upload:**
+
 ```bash
 pio run -e esp32-s3 -t upload
 ```
 
 **Clean build:**
+
 ```bash
 pio run -e esp32-s3 -t clean
 pio run -e esp32-s3
@@ -306,17 +309,20 @@ pip install pyserial
 ### Complete Test Cycle
 
 **1. Build and Upload:**
+
 ```bash
 cd /path/to/ESP32-mcp2515
 pio run -e esp32-s3 -t upload
 ```
 
 **2. Monitor Output:**
+
 ```bash
 ~/.venvs/pyserial/bin/python read_serial.py
 ```
 
 **3. Analyze Results:**
+
 - Look for `[PASS]` and `[FAIL]` markers
 - Check pass rate (should be >95% for production)
 - Review stress test success rate
@@ -333,6 +339,7 @@ For AI agents performing iterative development:
 5. If pass rate <95%, analyze failures and repeat
 
 **Key Metrics:**
+
 - **Pass Rate**: >95% required for production
 - **Stress Test Success**: >95% required for reliable operation
 - **Memory Usage**: Monitor for leaks or excessive consumption
@@ -351,6 +358,7 @@ When adding support for a new bitrate or clock frequency:
 **Location**: `mcp2515.h` (bitrate configuration section)
 
 **Pattern**:
+
 ```cpp
 #define MCP_<CLOCK>MHz_<SPEED>kBPS_CFG1 (0xXX)
 #define MCP_<CLOCK>MHz_<SPEED>kBPS_CFG2 (0xXX)
@@ -364,6 +372,7 @@ When adding support for a new bitrate or clock frequency:
 ### 2. Adding New Operating Modes
 
 **Existing modes** (see `CANCTRL_REQOP_MODE` enum in `mcp2515.h`):
+
 - `CANCTRL_REQOP_NORMAL`
 - `CANCTRL_REQOP_LOOPBACK`
 - `CANCTRL_REQOP_LISTENONLY`
@@ -371,6 +380,7 @@ When adding support for a new bitrate or clock frequency:
 - `CANCTRL_REQOP_OSM` (One-Shot Mode)
 
 **To add new mode**:
+
 1. Add enum value in `CANCTRL_REQOP_MODE`
 2. Create public method: `ERROR set<Mode>Mode()`
 3. Implement using `setMode(CANCTRL_REQOP_<MODE>)`
@@ -378,10 +388,12 @@ When adding support for a new bitrate or clock frequency:
 ### 3. Extending Filter/Mask Functionality
 
 **Current implementation**:
+
 - `setFilterMask(MASK num, bool ext, uint32_t ulData)`
 - `setFilter(RXF num, bool ext, uint32_t ulData)`
 
 **Key considerations**:
+
 - Filters are applied during initialization in `reset()`
 - Default: Accept all frames (masks set to 0)
 - `ext` parameter: `false` for standard (11-bit), `true` for extended (29-bit)
@@ -390,12 +402,14 @@ When adding support for a new bitrate or clock frequency:
 ### 4. Hardware Testing
 
 **Manual Two-Device Testing**:
+
 - Use two boards with MCP2515 modules
 - One as sender (CAN_write example), one as receiver (CAN_read example)
 - Connect CAN_H, CAN_L, and GND between modules
 - Add 120Ω termination resistors at both ends of CAN bus
 
 **Loopback Testing**:
+
 - Single device setup (no physical CAN bus required)
 - MCP2515 loops frames back internally
 - Still requires INT pin for interrupt-driven reception
@@ -445,6 +459,7 @@ The MCP2515 uses SPI Mode 0 (CPOL=0, CPHA=0):
 The MCP2515 supports interrupt-driven reception:
 
 **Interrupt flags** (see CANINTF register definitions in `mcp2515.h`):
+
 - `CANINTF_RX0IF`: Message in RXB0
 - `CANINTF_RX1IF`: Message in RXB1
 - `CANINTF_TX0IF/1IF/2IF`: Transmission complete
@@ -453,6 +468,7 @@ The MCP2515 supports interrupt-driven reception:
 - `CANINTF_MERRF`: Message error interrupt
 
 **Methods**:
+
 - `getInterrupts()`: Read interrupt flags
 - `clearInterrupts()`: Clear all interrupt flags
 - `clearTXInterrupts()`: Clear TX interrupt flags only
@@ -541,20 +557,24 @@ When reviewing changes:
 ### Debug Methods
 
 **Check Hardware Connection:**
+
 - Use `reset()` and check for `ERROR_OK` return value
 - Verify SPI communication is working
 
 **Monitor Error Flags:**
+
 - Use `getErrorFlags()` to read error conditions
 - Check for `EFLG_RX0OVR`, `EFLG_RX1OVR` (buffer overflow)
 - Check for `EFLG_TXBO` (bus-off condition)
 
 **Check Error Counters:**
+
 - Use `errorCountRX()` to read receive error counter
 - Use `errorCountTX()` to read transmit error counter
 - Rising counters indicate communication issues
 
 **ESP32-Specific Diagnostics:**
+
 - Use `getStatistics()` to retrieve comprehensive stats
 - Monitor RX/TX frame counts, errors, overflows, and bus-off events
 
@@ -721,6 +741,7 @@ These optimizations are transparent to the user and work with existing code.
 **Platforms Verified**: ESP32 (Classic/S2/S3/C3), Arduino (Uno/Mega2560)
 
 **Key Additions in v2.1:**
+
 - Testing and Development section with PlatformIO workflow
 - Serial monitoring with `read_serial.py` script
 - Autonomous testing workflow for AI agents

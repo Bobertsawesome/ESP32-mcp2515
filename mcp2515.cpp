@@ -1256,6 +1256,10 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(const RXBn rxbn, struct can_frame 
 
 #ifdef ESP32
     releaseMutex();
+
+    // DEBUG: Log raw header bytes
+    ESP_LOGI(MCP2515_LOG_TAG, "RX%d Header: SIDH=0x%02X SIDL=0x%02X EID8=0x%02X EID0=0x%02X DLC=0x%02X",
+             rxbn, tbufdata[0], tbufdata[1], tbufdata[2], tbufdata[3], tbufdata[4]);
 #endif
 
     uint32_t id = (tbufdata[MCP_SIDH]<<3) + (tbufdata[MCP_SIDL]>>5);
@@ -1280,6 +1284,14 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(const RXBn rxbn, struct can_frame 
     frame->can_id = id;
     frame->can_dlc = dlc;
 
+#ifdef ESP32
+    // DEBUG: Log parsed values
+    ESP_LOGI(MCP2515_LOG_TAG, "RX%d Parsed: ID=0x%03X DLC=%d RTR=%d EXT=%d",
+             rxbn, id & CAN_EFF_MASK, dlc,
+             (id & CAN_RTR_FLAG) ? 1 : 0,
+             (id & CAN_EFF_FLAG) ? 1 : 0);
+#endif
+
     // Read data bytes using optimized READ RX BUFFER command starting at D0
     // This is a separate SPI transaction starting at the data field
 #ifdef ESP32
@@ -1299,6 +1311,16 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(const RXBn rxbn, struct can_frame 
 
 #ifdef ESP32
     releaseMutex();
+
+    // DEBUG: Log data bytes
+    if (dlc > 0) {
+        char hex_str[32];
+        int pos = 0;
+        for (uint8_t i = 0; i < dlc && i < 8; i++) {
+            pos += snprintf(hex_str + pos, sizeof(hex_str) - pos, "%02X ", frame->data[i]);
+        }
+        ESP_LOGI(MCP2515_LOG_TAG, "RX%d Data: %s", rxbn, hex_str);
+    }
 #endif
 
     // Clear the RXnIF interrupt flag
@@ -1317,6 +1339,12 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(struct can_frame *frame)
 
     ERROR rc;
     uint8_t stat = getStatus();
+
+#ifdef ESP32
+    // DEBUG: Log status byte
+    ESP_LOGI(MCP2515_LOG_TAG, "readMessage() stat=0x%02X RX0IF=%d RX1IF=%d",
+             stat, (stat & STAT_RX0IF) ? 1 : 0, (stat & STAT_RX1IF) ? 1 : 0);
+#endif
 
     if ( stat & STAT_RX0IF ) {
         rc = readMessage(RXB0, frame);
