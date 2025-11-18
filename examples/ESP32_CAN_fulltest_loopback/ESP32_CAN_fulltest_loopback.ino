@@ -317,7 +317,7 @@ void drain_all_rx_buffers() {
     //           and will loop forever! Use readMessage(&frame) which checks first.
     uint32_t drained_hw = 0;
     for (int attempt = 0; attempt < 5; attempt++) {
-        while (can->readMessage(&dummy) == MCP2515::ERROR_OK) {
+        while (can->readMessageQueued(&dummy, 1) == MCP2515::ERROR_OK) {
             drained_hw++;
             if (drained_hw > 100) break;  // Safety limit
         }
@@ -666,7 +666,7 @@ void test_filters_and_masks() {
         delay(100);  // Increased from 50ms - loopback needs more time
 
         struct can_frame rx_frame;
-        MCP2515::ERROR err = can->readMessage(&rx_frame);
+        MCP2515::ERROR err = can->readMessageQueued(&rx_frame, 10);
         if (err == MCP2515::ERROR_OK) {
             if ((rx_frame.can_id & CAN_SFF_MASK) == 0x100) {
                 safe_printf("%s[PASS]%s Filter PASSED: Matching ID received (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
@@ -685,7 +685,7 @@ void test_filters_and_masks() {
         can->sendMessage(&tx_frame);
         delay(100);  // Increased from 50ms
 
-        err = can->readMessage(&rx_frame);
+        err = can->readMessageQueued(&rx_frame, 10);
         if (err == MCP2515::ERROR_NOMSG) {
             safe_printf("%s[PASS]%s Filter PASSED: Non-matching ID rejected (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
             global_stats.record_pass();
@@ -880,7 +880,9 @@ void test_reception(uint32_t settle_time_ms) {
     print_subheader("Test: readMessage(frame)");
 
     struct can_frame rx_frame;
-    MCP2515::ERROR err = can->readMessage(&rx_frame);
+    // Use readMessageQueued for interrupt mode compatibility
+    // It falls back to polling if interrupts are disabled
+    MCP2515::ERROR err = can->readMessageQueued(&rx_frame, 10);
 
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
         safe_printf("%s[PASS]%s readMessage() succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
@@ -915,11 +917,11 @@ void test_reception(uint32_t settle_time_ms) {
     can->sendMessage(&tx_frame);
     delay(settle_time_ms);
 
-    // Use auto-select readMessage() which checks status and reads from the correct buffer
-    // This avoids reading garbage from empty buffers which causes ID=0x000 issues
-    err = can->readMessage(&rx_frame);
+    // Use readMessageQueued for interrupt mode compatibility
+    // It reads from the queue if interrupts are enabled, or polls if disabled
+    err = can->readMessageQueued(&rx_frame, 10);  // 10ms timeout
     if (err == MCP2515::ERROR_OK || !mcp2515_connected) {
-        safe_printf("%s[PASS]%s readMessage() succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
+        safe_printf("%s[PASS]%s readMessage(buffer) succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
         global_stats.record_pass();
 
         if (mcp2515_connected) {
@@ -932,7 +934,7 @@ void test_reception(uint32_t settle_time_ms) {
             }
         }
     } else {
-        safe_printf("%s[FAIL]%s readMessage() failed (err=%d)%s\n",
+        safe_printf("%s[FAIL]%s readMessage(buffer) failed (err=%d)%s\n",
                    ANSI_RED, ANSI_RESET, err, ANSI_RESET);
         global_stats.record_fail();
     }
@@ -948,8 +950,8 @@ void test_reception(uint32_t settle_time_ms) {
     can->sendMessage(&tx_frame);
     delay(settle_time_ms);
 
-    // Try non-blocking read
-    err = can->readMessageQueued(&rx_frame, 0);
+    // Try read with small timeout to allow for ISR processing
+    err = can->readMessageQueued(&rx_frame, 10);
     if (err == MCP2515::ERROR_OK || err == MCP2515::ERROR_NOMSG || !mcp2515_connected) {
         if (err == MCP2515::ERROR_OK) {
             safe_printf("%s[PASS]%s readMessageQueued() succeeded (err=%d)\n", ANSI_GREEN, ANSI_RESET, err);
@@ -978,8 +980,8 @@ void test_reception(uint32_t settle_time_ms) {
     can->sendMessage(&tx_frame);
     delay(settle_time_ms);
 
-    // Use auto-select readMessage to avoid reading empty buffers
-    if (can->readMessage(&rx_frame) == MCP2515::ERROR_OK || !mcp2515_connected) {
+    // Use readMessageQueued for interrupt mode compatibility
+    if (can->readMessageQueued(&rx_frame, 10) == MCP2515::ERROR_OK || !mcp2515_connected) {
         // Check which buffer received the message by looking at status
         uint8_t status = can->getStatus();
         MCP2515::RXBn which_buffer = (status & 0x01) ? MCP2515::RXB0 : MCP2515::RXB1;
@@ -1324,7 +1326,7 @@ void test_extended_frames(uint32_t settle_time_ms) {
     delay(settle_time_ms);
 
     struct can_frame rx_frame;
-    err = can->readMessage(&rx_frame);
+    err = can->readMessageQueued(&rx_frame, 10);
 
     if (err == MCP2515::ERROR_OK) {
         // Verify extended frame flag is set
@@ -1374,7 +1376,7 @@ void test_extended_frames(uint32_t settle_time_ms) {
         can->sendMessage(&tx_frame);
         delay(settle_time_ms);
 
-        if (can->readMessage(&rx_frame) == MCP2515::ERROR_OK) {
+        if (can->readMessageQueued(&rx_frame, 10) == MCP2515::ERROR_OK) {
             uint32_t rx_id = rx_frame.can_id & CAN_EFF_MASK;
             if (rx_id == test_ids[i]) {
                 safe_printf("%s[PASS]%s Extended ID %s: 0x%08lX%s\n",
@@ -1431,7 +1433,7 @@ void test_dlc_variations(uint32_t settle_time_ms) {
         delay(settle_time_ms);
 
         struct can_frame rx_frame;
-        err = can->readMessage(&rx_frame);
+        err = can->readMessageQueued(&rx_frame, 10);
 
         if (err == MCP2515::ERROR_OK) {
             if (rx_frame.can_dlc == dlc) {
@@ -1497,7 +1499,7 @@ void test_rtr_frames(uint32_t settle_time_ms) {
     delay(settle_time_ms);
 
     struct can_frame rx_frame;
-    err = can->readMessage(&rx_frame);
+    err = can->readMessageQueued(&rx_frame, 10);
 
     if (err == MCP2515::ERROR_OK) {
         if (rx_frame.can_id & CAN_RTR_FLAG) {
@@ -1530,7 +1532,7 @@ void test_rtr_frames(uint32_t settle_time_ms) {
     err = can->sendMessage(&tx_frame);
     delay(settle_time_ms);
 
-    MCP2515::ERROR err_read = can->readMessage(&rx_frame);
+    MCP2515::ERROR err_read = can->readMessageQueued(&rx_frame, 10);
     if (err_read == MCP2515::ERROR_OK) {
         bool eff_ok = (rx_frame.can_id & CAN_EFF_FLAG) != 0;
         bool rtr_ok = (rx_frame.can_id & CAN_RTR_FLAG) != 0;
@@ -1605,7 +1607,7 @@ void test_stress(CAN_SPEED speed, uint32_t settle_time_ms) {
 
         // Receive frame
         struct can_frame rx_frame;
-        err = can->readMessage(&rx_frame);
+        err = can->readMessageQueued(&rx_frame, 10);
         if (err == MCP2515::ERROR_OK) {
             received++;
 

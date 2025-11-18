@@ -1214,16 +1214,13 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(const RXBn rxbn, struct can_frame 
         return ERROR_FAIL;
     }
 
-    // CRITICAL: Check if the specified buffer actually has a message
-    // Without this check, we'll read garbage (all zeros) from empty buffers
-    // This causes the mysterious ID=0x000 frames in test results
-    uint8_t status = getStatus();
-    uint8_t expected_flag = (rxbn == RXB0) ? STAT_RX0IF : STAT_RX1IF;
-
-    if ((status & expected_flag) == 0) {
-        // Buffer is empty, no message to read
-        return ERROR_NOMSG;
-    }
+    // NOTE: We cannot check RXnIF status flags here in interrupt-driven mode
+    // because the ISR task (processInterrupts) reads messages immediately
+    // when they arrive and clears the RXnIF flags. This means the flags
+    // will always be clear by the time user code calls readMessage(RXBn).
+    // In interrupt mode, messages are moved to the rx_queue by the ISR.
+    // This function will read whatever is currently in the hardware buffer,
+    // which may be empty (zeros) if the ISR already read it.
 
     const struct RXBn_REGS *rxb = &RXB[rxbn];
 
