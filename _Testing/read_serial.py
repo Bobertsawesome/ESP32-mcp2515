@@ -8,7 +8,7 @@ from datetime import datetime
 
 port = '/dev/cu.usbmodem1101'
 baudrate = 115200
-timeout = 45  # Read for 45 seconds
+timeout = 180  # Read for 180 seconds (multi-speed test takes ~2 minutes)
 
 # Create logs directory if it doesn't exist
 script_dir = os.path.dirname(os.path.abspath(__file__))

@@ -55,7 +55,7 @@
 #define DEFAULT_CRYSTAL_FREQ MCP_16MHZ      // Default crystal frequency
 
 // Multi-speed test configuration (set to true to test multiple speeds)
-#define ENABLE_MULTI_SPEED_TEST false
+#define ENABLE_MULTI_SPEED_TEST true
 
 // Multi-speed test array (speeds to test in order)
 const CAN_SPEED MULTI_SPEED_TEST_ARRAY[] = {
