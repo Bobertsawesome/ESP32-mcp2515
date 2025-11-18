@@ -1,0 +1,527 @@
+=========== Before Setup Start ===========
+Chip Info:
+------------------------------------------
+  Model             : ESP32-S3
+  Package           : 0
+  Revision          : 0.02
+  Cores             : 2
+  CPU Frequency     : 240 MHz
+  XTAL Frequency    : 40 MHz
+  Features Bitfield : 0x00000012
+  Embedded Flash    : No
+  Embedded PSRAM    : No
+  2.4GHz WiFi       : Yes
+  Classic BT        : No
+  BT Low Energy     : Yes
+  IEEE 802.15.4     : No
+------------------------------------------
+INTERNAL Memory Info:
+------------------------------------------
+  Total Size        :   388236 B ( 379.1 KB)
+  Free Bytes        :   350620 B ( 342.4 KB)
+  Allocated Bytes   :    32600 B (  31.8 KB)
+  Minimum Free Bytes:   345472 B ( 337.4 KB)
+  Largest Free Block:   294900 B ( 288.0 KB)
+------------------------------------------
+Flash Info:
+------------------------------------------
+  Chip Size         : 16777216 B (16 MB)
+  Block Size        :    65536 B (  64.0 KB)
+  Sector Size       :     4096 B (   4.0 KB)
+  Page Size         :      256 B (   0.2 KB)
+  Bus Speed         : 80 MHz
+  Flash Frequency   : 80 MHz (source: 80 MHz, divider: 1)
+  Bus Mode          : QIO
+------------------------------------------
+Partitions Info:
+------------------------------------------
+                nvs : addr: 0x00009000, size:    20.0 KB, type: DATA, subtype: NVS
+            otadata : addr: 0x0000E000, size:     8.0 KB, type: DATA, subtype: OTA
+               app0 : addr: 0x00010000, size:  1280.0 KB, type:  APP, subtype: OTA_0
+               app1 : addr: 0x00150000, size:  1280.0 KB, type:  APP, subtype: OTA_1
+             spiffs : addr: 0x00290000, size:  1408.0 KB, type: DATA, subtype: SPIFFS
+           coredump : addr: 0x003F0000, size:    64.0 KB, type: DATA, subtype: COREDUMP
+------------------------------------------
+Software Info:
+------------------------------------------
+  Compile Date/Time : Nov 17 2025 15:16:25
+  Compile Host OS   : macosx
+  ESP-IDF Version   : v5.5.1-418-gf1a1df9b2e
+  Arduino Version   : 3.3.3
+------------------------------------------
+Board Info:
+------------------------------------------
+  Arduino Board     : ESP32S3_DEV
+  Arduino Variant   : esp32s3
+  Arduino FQBN      : esp32:esp32:esp32s3:UploadSpeed=921600,USBMode=hwcdc,CDCOnBoot=cdc,MSCOnBoot=default,DFUOnBoot=default,UploadMode=default,CPUFreq=240,FlashMode=qio,FlashSize=4M,PartitionScheme=default,DebugLevel=verbose,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default
+============ Before Setup End ============
+[   586][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 44 successfully set to type UART_RX (2) with bus 0x3fc95024
+[   587][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type UART_RX (2) successfully set to 0x42009264
+[   588][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 43 successfully set to type UART_TX (3) with bus 0x3fc95024
+[   588][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type UART_TX (3) successfully set to 0x42009230
+[   589][I][esp32-hal-periman.c:141] perimanSetPinBus(): Pin 19 already has type USB_DM (45) with bus 0x3fc98484
+[   589][I][esp32-hal-periman.c:141] perimanSetPinBus(): Pin 20 already has type USB_DP (46) with bus 0x3fc98484
+[  1590][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type SPI_MASTER_SCK (34) successfully set to 0x4200852c
+[  1591][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type SPI_MASTER_MISO (35) successfully set to 0x42008454
+[  1591][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type SPI_MASTER_MOSI (36) successfully set to 0x42008378
+[  1592][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type SPI_MASTER_SS (37) successfully set to 0x42008264
+[  1593][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type GPIO (1) successfully set to 0x42023f98
+[  1593][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 12 successfully set to type GPIO (1) with bus 0xd
+[  1594][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 12 successfully set to type SPI_MASTER_SCK (34) with bus 0x1
+[  1595][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type GPIO (1) successfully set to 0x42023f98
+[  1595][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 13 successfully set to type GPIO (1) with bus 0xe
+[  1596][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 13 successfully set to type SPI_MASTER_MISO (35) with bus 0x1
+[  1596][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type GPIO (1) successfully set to 0x42023f98
+[  1597][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 11 successfully set to type GPIO (1) with bus 0xc
+[  1597][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 11 successfully set to type SPI_MASTER_MOSI (36) with bus 0x1
+[  1698][V][esp32-hal-periman.c:235] perimanSetBusDeinit(): Deinit function for type GPIO (1) successfully set to 0x42023f98
+[  1699][V][esp32-hal-periman.c:160] perimanSetPinBus(): Pin 37 successfully set to type GPIO (1) with bus 0x26
+[  1700][I][mcp2515.cpp:1589] isrTask(): [MCP2515] ISR task started
+[  1700][I][mcp2515.cpp:1562] initInterrupts(): [MCP2515] Interrupts initialized on GPIO 36
+
+[1m╔═══════════════════════════════════════════════════════╗[0m
+[1m║     ESP32-MCP2515 COMPREHENSIVE LOOPBACK TEST        ║[0m
+[1m╚═══════════════════════════════════════════════════════╝[0m
+
+[36mSpeed:[0m 250 kbps
+[36mCrystal:[0m 16 MHz
+[36mSettle time:[0m 5 ms
+
+
+[1m[34m=== INITIALIZATION TESTS ===[0m
+
+[36m--- Test: reset() ---[0m
+[32m[PASS][0m MCP2515 reset successful (err=0)
+
+[36m--- Test: isInitialized() ---[0m
+[32m[PASS][0m isInitialized() returns expected state (initialized=true)
+  Initialized: true
+
+[36m--- Test: setBitrate() ---[0m
+[32m[PASS][0m setBitrate(speed) succeeded (err=0)
+[32m[PASS][0m setBitrate(speed, crystal) succeeded (err=0)
+  Speed: 250 kbps, Crystal: 16 MHz
+
+[1m[34m=== MODE SWITCHING TESTS ===[0m
+
+[36m--- setLoopbackMode() ---[0m
+[32m[PASS][0m Mode function returned ERROR_OK (err=0)[0m
+[32m[PASS][0m Mode verified: Loopback (mode=0x02)[0m
+
+[36m--- setListenOnlyMode() ---[0m
+[32m[PASS][0m Mode function returned ERROR_OK (err=0)[0m
+[32m[PASS][0m Mode verified: Listen-Only (mode=0x03)[0m
+
+[36m--- setNormalMode() ---[0m
+[32m[PASS][0m Mode function returned ERROR_OK (err=0)[0m
+[32m[PASS][0m Mode verified: Normal (mode=0x00)[0m
+
+[36m--- setNormalOneShotMode() ---[0m
+[32m[PASS][0m Mode function returned ERROR_OK (err=0)[0m
+[32m[PASS][0m Mode verified: Normal One-Shot (mode=0x00)[0m
+
+[36m--- setSleepMode() ---[0m
+[32m[PASS][0m Mode function returned ERROR_OK (err=0)[0m
+[32m[PASS][0m Sleep mode set (verification skipped - SPI read would wake chip)[0m
+
+[36m--- setConfigMode() ---[0m
+[32m[PASS][0m Mode function returned ERROR_OK (err=0)[0m
+[32m[PASS][0m Mode verified: Configuration (mode=0x04)[0m
+
+[1m[34m=== FILTER AND MASK CONFIGURATION TESTS ===[0m
+
+[36m--- Test: setFilterMask() ---[0m
+[32m[PASS][0m MASK0 standard (exact match) (err=0)
+[32m[PASS][0m MASK1 standard (accept all) (err=0)
+[32m[PASS][0m MASK0 extended (exact match) (err=0)
+[32m[PASS][0m MASK1 extended (accept all) (err=0)
+
+[36m--- Test: setFilter() ---[0m
+[32m[PASS][0m RXF0 standard (ID=0x123, err=0)
+[32m[PASS][0m RXF1 standard (ID=0x456, err=0)
+[32m[PASS][0m RXF2 standard (ID=0x789, err=0)
+[32m[PASS][0m RXF3 standard (ID=0x100, err=0)
+[32m[PASS][0m RXF4 standard (ID=0x200, err=0)
+[32m[PASS][0m RXF5 standard (ID=0x300, err=0)
+[32m[PASS][0m RXF0 extended (ID=0x12345678, err=0)
+[32m[PASS][0m RXF2 extended (ID=0x87654321, err=0)
+
+[36m--- Functional Filter Test ---[0m
+[32m[PASS][0m Filter PASSED: Matching ID received (err=0)
+[31m[FAIL][0m Filter FAILED: Non-matching ID was received (err=0)
+
+[1m[34m=== TRANSMISSION TESTS ===[0m
+
+[36m--- Test: setTransmitPriority() ---[0m
+[32m[PASS][0m TXB0 priority set to 3 (err=0)
+[32m[PASS][0m TXB1 priority set to 2 (err=0)
+[32m[PASS][0m TXB2 priority set to 1 (err=0)
+
+[36m--- Test: sendMessage(buffer, frame) ---[0m
+[32m[PASS][0m TXB0 send succeeded (err=0)
+[32m[PASS][0m TXB1 send succeeded (err=0)
+[32m[PASS][0m TXB2 send succeeded (err=0)
+
+[36m--- Test: sendMessage(frame) - auto buffer ---[0m
+[32m[PASS][0m Auto buffer selection send succeeded (err=0)
+
+[36m--- Test: abortTransmission() ---[0m
+[32m[PASS][0m Abort transmission succeeded (err=0)
+
+[36m--- Test: abortAllTransmissions() ---[0m
+[32m[PASS][0m Abort all transmissions succeeded (err=0)
+
+[1m[34m=== RECEPTION TESTS ===[0m
+[33m[DEBUG][0m Drained 5 queued + 0 hardware frames[0m
+
+[36m--- Test: checkReceive() ---[0m
+[31m[FAIL][0m checkReceive() failed to detect message (has_message=false)
+
+[36m--- Test: readMessage(frame) ---[0m
+[32m[PASS][0m readMessage() succeeded (err=0)
+[31mID mismatch: expected 0x200, got 0x000[0m
+[31m[FAIL][0m Data integrity check failed
+Expected: ID=0x200, DLC=8, Data=20 21 22 23 24 25 26 27 
+Received: ID=0x000, DLC=0, Data=
+
+[36m--- Test: readMessage(buffer, frame) ---[0m
+[31m[FAIL][0m readMessage(buffer) failed (err=6)[0m
+
+[36m--- Test: readMessageQueued() ---[0m
+[31m[FAIL][0m readMessageQueued() failed (err=6)[0m
+
+[36m--- Test: getFilterHit() ---[0m
+[33m[WARN][0m Could not test getFilterHit() - no message received
+
+[36m--- Test: getRxQueueCount() ---[0m
+[36m[INFO][0m RX queue count: 0[0m
+
+[1m[34m=== STATUS AND DIAGNOSTICS TESTS ===[0m
+
+[36m--- Test: getStatus() ---[0m
+[32m[PASS][0m Status: 0x00[0m
+
+[36m--- Test: getInterrupts() ---[0m
+[32m[PASS][0m Interrupts: 0x00[0m
+
+[36m--- Test: getInterruptMask() ---[0m
+[32m[PASS][0m Interrupt mask: 0xA3[0m
+
+[36m--- Test: getErrorFlags() ---[0m
+[32m[PASS][0m Error flags: 0x00[0m
+
+[36m--- Test: checkError() ---[0m
+[32m[PASS][0m checkError(): false[0m
+
+[36m--- Test: errorCountRX() ---[0m
+[32m[PASS][0m RX error count: 0[0m
+
+[36m--- Test: errorCountTX() ---[0m
+[32m[PASS][0m TX error count: 0[0m
+
+[36m--- Test: getBusStatus() ---[0m
+[32m[PASS][0m Bus status: 0x40 (Mode: Loopback)[0m
+
+[1m[34m=== INTERRUPT MANAGEMENT TESTS ===[0m
+
+[36m--- Test: clearInterrupts() ---[0m
+[32m[PASS][0m clearInterrupts() succeeded (interrupts=0x00)
+
+[36m--- Test: clearTXInterrupts() ---[0m
+[32m[PASS][0m clearTXInterrupts() succeeded (interrupts=0x00, tx_cleared=true)
+
+[36m--- Test: clearRXnOVR() ---[0m
+[32m[PASS][0m clearRXnOVR() succeeded (eflg=0x00, ovr_cleared=true)
+
+[36m--- Test: clearRXnOVRFlags() ---[0m
+[32m[PASS][0m clearRXnOVRFlags() verified (eflg=0x00, ovr_cleared=true)
+
+[36m--- Test: clearMERR() ---[0m
+[32m[PASS][0m clearMERR() verified - MERRF flag cleared (interrupts=0x00, merr_cleared=true)
+
+[36m--- Test: clearERRIF() ---[0m
+[32m[PASS][0m clearERRIF() verified - ERRIF flag cleared (interrupts=0x00, errif_cleared=true)
+
+[1m[34m=== ESP32-SPECIFIC TESTS ===[0m
+
+[36m--- Test: getStatistics() ---[0m
+[32m[PASS][0m Statistics retrieved[0m
+  RX frames:     8
+  TX frames:     11
+  RX errors:     0
+  TX errors:     0
+  RX overflow:   0
+  TX timeouts:   0
+  Bus errors:    0
+  Bus-off count: 0
+
+[36m--- Test: resetStatistics() ---[0m
+[32m[PASS][0m resetStatistics() succeeded - all counters reset (rx=0, tx=0, rx_err=0, tx_err=0, all_zero=true)
+
+[36m--- Test: setInterruptMode() ---[0m
+[32m[PASS][0m setInterruptMode(false) succeeded (err=0)
+[32m[PASS][0m setInterruptMode(true) succeeded (err=0)
+
+[36m--- Test: performErrorRecovery() ---[0m
+[  3513][W][mcp2515.cpp:1737] performErrorRecovery(): [MCP2515] Performing error recovery
+[  3513][I][mcp2515.cpp:1740] performErrorRecovery(): [MCP2515] Error counts - RX: 0, TX: 0
+[32m[PASS][0m performErrorRecovery() succeeded (err=0)
+
+[1m[34m=== CLOCK OUTPUT CONFIGURATION TEST ===[0m
+
+[36m--- DISABLE (SOF output) ---[0m
+[32m[PASS][0m setClkOut(DISABLE (SOF output)) succeeded (err=0)[0m
+
+[36m--- DIV1 (full freq) ---[0m
+[32m[PASS][0m setClkOut(DIV1 (full freq)) succeeded (err=0)[0m
+
+[36m--- DIV2 (/2) ---[0m
+[32m[PASS][0m setClkOut(DIV2 (/2)) succeeded (err=0)[0m
+
+[36m--- DIV4 (/4) ---[0m
+[32m[PASS][0m setClkOut(DIV4 (/4)) succeeded (err=0)[0m
+
+[36m--- DIV8 (/8) ---[0m
+[32m[PASS][0m setClkOut(DIV8 (/8)) succeeded (err=0)[0m
+
+[1m[34m=== EXTENDED FRAME (29-bit ID) TESTS ===[0m
+
+[36m--- Test: Extended Frame TX/RX ---[0m
+[31m[FAIL][0m Extended frame flag not set in received frame (err=0)
+
+[36m--- Test: Multiple Extended IDs ---[0m
+[31m[FAIL][0m Extended ID Min+1 not received[0m
+[31m[FAIL][0m Extended ID Max mismatch[0m
+[31m[FAIL][0m Extended ID Mid-high not received[0m
+[31m[FAIL][0m Extended ID Mid-low mismatch[0m
+
+[1m[34m=== DLC VARIATION TESTS ===[0m
+
+[36m--- Test: All DLC Values (0-8) ---[0m
+[31m[FAIL][0m DLC=0 frame not received (err=6)[0m
+[31m[FAIL][0m DLC mismatch: expected 1, got 0[0m
+[31m[FAIL][0m DLC mismatch: expected 2, got 0[0m
+[31m[FAIL][0m DLC mismatch: expected 3, got 0[0m
+[31m[FAIL][0m DLC mismatch: expected 4, got 0[0m
+[31m[FAIL][0m DLC mismatch: expected 5, got 0[0m
+[31m[FAIL][0m DLC=6 frame not received (err=6)[0m
+[31m[FAIL][0m DLC mismatch: expected 7, got 0[0m
+[31m[FAIL][0m DLC mismatch: expected 8, got 0[0m
+
+[1m[34m=== RTR (Remote Transmission Request) FRAME TESTS ===[0m
+
+[36m--- Test: Standard RTR Frame ---[0m
+[31m[FAIL][0m RTR frame not received (err=6)
+
+[36m--- Test: Extended RTR Frame ---[0m
+[31m[FAIL][0m Extended RTR frame not received (send_err=0, read_err=6)
+
+[1m[34m=== STRESS TEST ===[0m
+[36m[INFO][0m Testing 1000 packets at 250 kbps[0m
+[31mID mismatch: expected 0x105, got 0x000[0m
+[31mData error in packet 5[0m
+Expected: ID=0x105, DLC=8, Data=05 00 00 AA 05 00 00 AA 
+Received: ID=0x000, DLC=0, Data=
+[31mID mismatch: expected 0x106, got 0x000[0m
+[31mData error in packet 6[0m
+Expected: ID=0x106, DLC=8, Data=06 00 00 AA 06 00 00 AA 
+Received: ID=0x000, DLC=0, Data=
+[31mID mismatch: expected 0x108, got 0x000[0m
+[31mData error in packet 8[0m
+Expected: ID=0x108, DLC=8, Data=08 00 00 AA 08 00 00 AA 
+Received: ID=0x000, DLC=0, Data=
+[31mID mismatch: expected 0x117, got 0x000[0m
+[31mData error in packet 23[0m
+Expected: ID=0x117, DLC=8, Data=17 00 00 AA 17 00 00 AA 
+Received: ID=0x000, DLC=0, Data=
+[31mID mismatch: expected 0x119, got 0x000[0m
+[31mData error in packet 25[0m
+Expected: ID=0x119, DLC=8, Data=19 00 00 AA 19 00 00 AA 
+Received: ID=0x000, DLC=0, Data=
+[31mID mismatch: expected 0x12A, got 0x000[0m
+[31mData error in packet 42[0m
+Expected: ID=0x12A, DLC=8, Data=2A 00 00 AA 2A 00 00 AA 
+Received: ID=0x000, DLC=0, Data=
+[31mID mismatch: expected 0x12C, got 0x000[0m
+[31mData error in packet 44[0m
+Expected: ID=0x12C, DLC=8, Data=2C 00 00 AA 2C 00 00 AA 
+Received: ID=0x000, DLC=0, Data=
+[31mID mismatch: expected 0x13D, got 0x000[0m
+[31mData error in packet 61[0m
+Expected: ID=0x13D, DLC=8, Data=3D 00 00 AA 3D 00 00 AA 
+Received: ID=0x000, DLC=0, Data=
+[31mID mismatch: expected 0x13F, got 0x000[0m
+[31mData error in packet 63[0m
+Expected: ID=0x13F, DLC=8, Data=3F 00 00 AA 3F 00 00 AA 
+Received: ID=0x000, DLC=0, Data=
+[31mID mismatch: expected 0x140, got 0x000[0m
+[31mID mismatch: expected 0x14F, got 0x000[0m
+[31mID mismatch: expected 0x151, got 0x000[0m
+[31mID mismatch: expected 0x162, got 0x000[0m
+[36m[INFO][0m Progress: 10% (100/1000 packets)[0m
+[31mID mismatch: expected 0x164, got 0x000[0m
+[31mID mismatch: expected 0x165, got 0x000[0m
+[31mID mismatch: expected 0x174, got 0x000[0m
+[31mID mismatch: expected 0x176, got 0x000[0m
+[31mID mismatch: expected 0x187, got 0x000[0m
+[31mID mismatch: expected 0x189, got 0x000[0m
+[31mID mismatch: expected 0x19A, got 0x000[0m
+[31mID mismatch: expected 0x19C, got 0x000[0m
+[31mID mismatch: expected 0x1AC, got 0x000[0m
+[31mID mismatch: expected 0x1AE, got 0x000[0m
+[31mID mismatch: expected 0x1BF, got 0x000[0m
+[31mID mismatch: expected 0x1C1, got 0x000[0m
+[36m[INFO][0m Progress: 20% (200/1000 packets)[0m
+[31mID mismatch: expected 0x1D2, got 0x000[0m
+[31mID mismatch: expected 0x1D4, got 0x000[0m
+[31mID mismatch: expected 0x1E5, got 0x000[0m
+[31mID mismatch: expected 0x1E7, got 0x000[0m
+[31mID mismatch: expected 0x1F7, got 0x000[0m
+[31mID mismatch: expected 0x1F9, got 0x000[0m
+[31mID mismatch: expected 0x1FA, got 0x000[0m
+[31mID mismatch: expected 0x10A, got 0x000[0m
+[31mID mismatch: expected 0x10C, got 0x000[0m
+[31mID mismatch: expected 0x11C, got 0x000[0m
+[31mID mismatch: expected 0x11E, got 0x000[0m
+[31mID mismatch: expected 0x11F, got 0x000[0m
+[36m[INFO][0m Progress: 30% (300/1000 packets)[0m
+[31mID mismatch: expected 0x12F, got 0x000[0m
+[31mID mismatch: expected 0x131, got 0x000[0m
+[31mID mismatch: expected 0x141, got 0x000[0m
+[31mID mismatch: expected 0x143, got 0x000[0m
+[31mID mismatch: expected 0x154, got 0x000[0m
+[31mID mismatch: expected 0x156, got 0x000[0m
+[31mID mismatch: expected 0x167, got 0x000[0m
+[31mID mismatch: expected 0x169, got 0x000[0m
+[31mID mismatch: expected 0x17A, got 0x000[0m
+[31mID mismatch: expected 0x17C, got 0x000[0m
+[31mID mismatch: expected 0x18D, got 0x000[0m
+[31mID mismatch: expected 0x18F, got 0x000[0m
+[36m[INFO][0m Progress: 40% (400/1000 packets)[0m
+[31mID mismatch: expected 0x19F, got 0x000[0m
+[31mID mismatch: expected 0x1A1, got 0x000[0m
+[31mID mismatch: expected 0x1B2, got 0x000[0m
+[31mID mismatch: expected 0x1B4, got 0x000[0m
+[31mID mismatch: expected 0x1C5, got 0x000[0m
+[31mID mismatch: expected 0x1C7, got 0x000[0m
+[31mID mismatch: expected 0x1D8, got 0x000[0m
+[31mID mismatch: expected 0x1DA, got 0x000[0m
+[31mID mismatch: expected 0x1EA, got 0x000[0m
+[31mID mismatch: expected 0x1EC, got 0x000[0m
+[36m[INFO][0m Progress: 50% (500/1000 packets)[0m
+[31mID mismatch: expected 0x1FD, got 0x000[0m
+[31mID mismatch: expected 0x1FF, got 0x000[0m
+[31mID mismatch: expected 0x110, got 0x000[0m
+[31mID mismatch: expected 0x112, got 0x000[0m
+[31mID mismatch: expected 0x123, got 0x000[0m
+[31mID mismatch: expected 0x125, got 0x000[0m
+[31mID mismatch: expected 0x126, got 0x000[0m
+[31mID mismatch: expected 0x135, got 0x000[0m
+[31mID mismatch: expected 0x137, got 0x000[0m
+[31mID mismatch: expected 0x148, got 0x000[0m
+[31mID mismatch: expected 0x14A, got 0x000[0m
+[31mID mismatch: expected 0x14B, got 0x000[0m
+[31mID mismatch: expected 0x14C, got 0x000[0m
+[36m[INFO][0m Progress: 60% (600/1000 packets)[0m
+[31mID mismatch: expected 0x159, got 0x000[0m
+[31mID mismatch: expected 0x15B, got 0x000[0m
+[31mID mismatch: expected 0x16C, got 0x000[0m
+[31mID mismatch: expected 0x16E, got 0x000[0m
+[31mID mismatch: expected 0x17F, got 0x000[0m
+[31mID mismatch: expected 0x181, got 0x000[0m
+[31mID mismatch: expected 0x192, got 0x000[0m
+[31mID mismatch: expected 0x194, got 0x000[0m
+[31mID mismatch: expected 0x1A4, got 0x000[0m
+[31mID mismatch: expected 0x1A6, got 0x000[0m
+[31mID mismatch: expected 0x1B7, got 0x000[0m
+[31mID mismatch: expected 0x1B9, got 0x000[0m
+[36m[INFO][0m Progress: 70% (700/1000 packets)[0m
+[31mID mismatch: expected 0x1CA, got 0x000[0m
+[31mID mismatch: expected 0x1CC, got 0x000[0m
+[31mID mismatch: expected 0x1DD, got 0x000[0m
+[31mID mismatch: expected 0x1DF, got 0x000[0m
+[31mID mismatch: expected 0x1F0, got 0x000[0m
+[31mID mismatch: expected 0x1F1, got 0x000[0m
+[31mID mismatch: expected 0x1F2, got 0x000[0m
+[31mID mismatch: expected 0x102, got 0x000[0m
+[31mID mismatch: expected 0x104, got 0x000[0m
+[31mID mismatch: expected 0x115, got 0x000[0m
+[31mID mismatch: expected 0x117, got 0x000[0m
+[31mID mismatch: expected 0x118, got 0x000[0m
+[36m[INFO][0m Progress: 80% (800/1000 packets)[0m
+[31mID mismatch: expected 0x127, got 0x000[0m
+[31mID mismatch: expected 0x129, got 0x000[0m
+[31mID mismatch: expected 0x13A, got 0x000[0m
+[31mID mismatch: expected 0x13C, got 0x000[0m
+[31mID mismatch: expected 0x14C, got 0x000[0m
+[31mID mismatch: expected 0x14E, got 0x000[0m
+[31mID mismatch: expected 0x15F, got 0x000[0m
+[31mID mismatch: expected 0x161, got 0x000[0m
+[31mID mismatch: expected 0x172, got 0x000[0m
+[31mID mismatch: expected 0x174, got 0x000[0m
+[36m[INFO][0m Progress: 90% (900/1000 packets)[0m
+[31mID mismatch: expected 0x185, got 0x000[0m
+[31mID mismatch: expected 0x187, got 0x000[0m
+[31mID mismatch: expected 0x197, got 0x000[0m
+[31mID mismatch: expected 0x199, got 0x000[0m
+[31mID mismatch: expected 0x1AA, got 0x000[0m
+[31mID mismatch: expected 0x1AC, got 0x000[0m
+[31mID mismatch: expected 0x1BD, got 0x000[0m
+[31mID mismatch: expected 0x1BF, got 0x000[0m
+[31mID mismatch: expected 0x1C0, got 0x000[0m
+[31mID mismatch: expected 0x1CF, got 0x000[0m
+[31mID mismatch: expected 0x1D1, got 0x000[0m
+[31mID mismatch: expected 0x1E2, got 0x000[0m
+[31mID mismatch: expected 0x1E4, got 0x000[0m
+[31mID mismatch: expected 0x1E5, got 0x000[0m
+[36m[INFO][0m Progress: 100% (1000/1000 packets)[0m
+
+[36m--- Stress Test Results ---[0m
+  Packets sent:     1000
+  Packets received: 120
+  Send errors:      880
+  Data errors:      120
+  Success rate:     12.00%
+  Elapsed time:     13801 ms
+  Throughput:       8.70 packets/sec
+  Theoretical max:  2252.25 packets/sec
+  Efficiency:       0.39%
+[31m[FAIL][0m Stress test FAILED - data integrity errors detected[0m
+
+[1m[34m=== TEST SUMMARY ===[0m
+
+  Total tests:    86
+  [32mPassed:[0m         64
+  [31mFailed:[0m         22
+  [33mWarnings:[0m       1
+
+  [36mPass rate:[0m      74.42%
+
+[31m╔═══════════════════════════════════════════════════════╗[0m
+[31m║              ✗ SOME TESTS FAILED ✗                   ║[0m
+[31m╚═══════════════════════════════════════════════════════╝[0m
+
+
+[36m[INFO][0m Testing complete. System will idle.[0m
+=========== After Setup Start ============
+INTERNAL Memory Info:
+------------------------------------------
+  Total Size        :   388236 B ( 379.1 KB)
+  Free Bytes        :   344020 B ( 336.0 KB)
+  Allocated Bytes   :    38960 B (  38.0 KB)
+  Minimum Free Bytes:   338760 B ( 330.8 KB)
+  Largest Free Block:   294900 B ( 288.0 KB)
+------------------------------------------
+GPIO Info:
+------------------------------------------
+  GPIO : BUS_TYPE[bus/unit][chan]
+  --------------------------------------  
+    11 : SPI_MASTER_MOSI[0]
+    12 : SPI_MASTER_SCK[0]
+    13 : SPI_MASTER_MISO[0]
+    19 : USB_DM
+    20 : USB_DP
+    37 : GPIO
+    43 : UART_TX[0]
+    44 : UART_RX[0]
+============ After Setup End =============

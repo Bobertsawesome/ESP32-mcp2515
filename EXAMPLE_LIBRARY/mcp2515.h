@@ -1,48 +1,8 @@
-/**
- * @file mcp2515.h
- * @brief ESP32-optimized MCP2515 CAN Controller Library
- *
- * Refactored for ESP32 with FreeRTOS integration, native SPI driver support,
- * interrupt-driven reception, and power management.
- *
- * Features:
- * - Thread-safe operations with FreeRTOS mutexes
- * - Native ESP32 SPI driver with DMA support
- * - Interrupt-driven RX with dedicated task
- * - Power management integration
- * - Backwards compatible with Arduino-ESP32
- *
- * @version 2.0.0-ESP32
- * @date 2025
- */
-
 #ifndef _MCP2515_H_
 #define _MCP2515_H_
 
+#include <SPI.h>
 #include "can.h"
-#include <stdint.h>
-#include <stdbool.h>
-
-// Platform detection and includes
-#ifdef ESP32
-    #include "mcp2515_esp32_config.h"
-    #ifdef ARDUINO
-        #include <SPI.h>
-        #include <Arduino.h>
-    #else
-        #include <driver/spi_master.h>
-        #include <driver/gpio.h>
-        #include <freertos/FreeRTOS.h>
-        #include <freertos/task.h>
-        #include <freertos/semphr.h>
-        #include <freertos/queue.h>
-        #include <esp_log.h>
-        #include <string.h>
-    #endif
-    #include <atomic>  // For atomic shutdown flag
-#else
-    #include <SPI.h>
-#endif
 
 /*
  *  Speed 8M
@@ -246,47 +206,6 @@ enum CAN_CLKOUT {
     CLKOUT_DIV8 = 0x3,
 };
 
-#ifdef ESP32
-/**
- * @brief ESP32 GPIO pin configuration for MCP2515
- */
-struct mcp2515_esp32_pins_t {
-    gpio_num_t miso;    ///< SPI MISO pin
-    gpio_num_t mosi;    ///< SPI MOSI pin
-    gpio_num_t sclk;    ///< SPI SCLK pin
-    gpio_num_t cs;      ///< SPI Chip Select pin
-    gpio_num_t irq;     ///< Interrupt pin (optional, set to GPIO_NUM_NC to disable)
-};
-
-/**
- * @brief ESP32-specific configuration structure
- */
-struct mcp2515_esp32_config_t {
-    spi_host_device_t spi_host;         ///< SPI host (VSPI_HOST or HSPI_HOST)
-    uint32_t spi_clock_speed;           ///< SPI clock speed in Hz
-    mcp2515_esp32_pins_t pins;          ///< GPIO pin configuration
-    bool use_interrupts;                ///< Enable interrupt-driven reception
-    bool use_mutex;                     ///< Enable thread-safe operations
-    uint8_t rx_queue_size;              ///< Size of RX frame queue
-    uint8_t isr_task_priority;          ///< Priority of ISR handler task
-    uint16_t isr_task_stack_size;       ///< Stack size for ISR task
-};
-
-/**
- * @brief CAN frame statistics (ESP32 only)
- */
-struct mcp2515_statistics_t {
-    uint32_t rx_frames;         ///< Total frames received
-    uint32_t tx_frames;         ///< Total frames transmitted
-    uint32_t rx_errors;         ///< RX errors
-    uint32_t tx_errors;         ///< TX errors
-    uint32_t rx_overflow;       ///< RX buffer overflows
-    uint32_t tx_timeouts;       ///< TX timeouts
-    uint32_t bus_errors;        ///< Bus errors
-    uint32_t bus_off_count;     ///< Bus-off events
-};
-#endif
-
 class MCP2515
 {
     public:
@@ -296,10 +215,7 @@ class MCP2515
             ERROR_ALLTXBUSY = 2,
             ERROR_FAILINIT  = 3,
             ERROR_FAILTX    = 4,
-            ERROR_NOMSG     = 5,
-            ERROR_TIMEOUT   = 6,    ///< Timeout error (ESP32)
-            ERROR_MUTEX     = 7,    ///< Mutex acquisition failed (ESP32)
-            ERROR_PSRAM     = 8     ///< PSRAM+DMA conflict detected (ESP32)
+            ERROR_NOMSG     = 5
         };
 
         enum MASK {
@@ -531,96 +447,27 @@ class MCP2515
             CANINTF  CANINTF_RXnIF;
         } RXB[N_RXBUFFERS];
 
-        // Legacy Arduino SPI members
         uint8_t SPICS;
         uint32_t SPI_CLOCK;
-#ifdef ARDUINO
         SPIClass * SPIn;
-#endif
-
-#ifdef ESP32
-        // ESP32-specific members
-        spi_device_handle_t spi_handle;     ///< ESP32 SPI device handle
-        SemaphoreHandle_t   spi_mutex;      ///< Mutex for thread-safe SPI access
-        SemaphoreHandle_t   isr_semaphore;  ///< Semaphore for ISR notification
-        QueueHandle_t       rx_queue;       ///< Queue for received CAN frames
-        TaskHandle_t        isr_task_handle;///< Handle for ISR processing task
-        gpio_num_t          int_pin;        ///< Interrupt pin number
-        mcp2515_statistics_t statistics;    ///< Frame statistics
-        portMUX_TYPE        statistics_mutex; ///< Spinlock for statistics protection
-        bool                initialized;    ///< Initialization status
-        bool                use_interrupts; ///< Interrupt mode enabled
-        std::atomic<bool>   shutdown_requested; ///< Flag to signal ISR task to stop (atomic for dual-core safety)
-        CANCTRL_REQOP_MODE  current_mode;   ///< Track current operating mode for loopback detection
-        bool                interrupts_before_loopback; ///< Remember interrupt state before loopback mode
-#endif
 
     private:
 
-        void IRAM_ATTR startSPI();
-        void IRAM_ATTR endSPI();
+        void startSPI();
+        void endSPI();
 
         ERROR setMode(const CANCTRL_REQOP_MODE mode);
 
-        uint8_t IRAM_ATTR readRegister(const REGISTER reg);
-        ERROR IRAM_ATTR readRegisters(const REGISTER reg, uint8_t values[], const uint8_t n);
-        ERROR IRAM_ATTR setRegister(const REGISTER reg, const uint8_t value);
-        ERROR IRAM_ATTR setRegisters(const REGISTER reg, const uint8_t values[], const uint8_t n);
-        ERROR IRAM_ATTR modifyRegister(const REGISTER reg, const uint8_t mask, const uint8_t data);
+        uint8_t readRegister(const REGISTER reg);
+        void readRegisters(const REGISTER reg, uint8_t values[], const uint8_t n);
+        void setRegister(const REGISTER reg, const uint8_t value);
+        void setRegisters(const REGISTER reg, const uint8_t values[], const uint8_t n);
+        void modifyRegister(const REGISTER reg, const uint8_t mask, const uint8_t data);
 
         void prepareId(uint8_t *buffer, const bool ext, const uint32_t id);
-
-#ifdef ESP32
-        // ESP32-specific private methods
-        ERROR initSPI(const mcp2515_esp32_config_t* config);
-        ERROR initInterrupts(gpio_num_t int_pin);
-        static void IRAM_ATTR isrHandler(void* arg);
-        static void isrTask(void* pvParameters);
-        ERROR acquireMutex(TickType_t timeout);
-        void releaseMutex();
-        void processInterrupts();
-#ifndef ARDUINO
-        // Native ESP-IDF SPI transfer
-        inline uint8_t spiTransfer(uint8_t data);
-#endif
-#endif
-
+    
     public:
-        // ===========================================
-        // Constructors
-        // ===========================================
-
-        /**
-         * @brief Legacy Arduino constructor
-         * @param _CS Chip select pin
-         * @param _SPI_CLOCK SPI clock speed (Hz)
-         * @param _SPI SPI object pointer
-         */
-#ifdef ARDUINO
         MCP2515(const uint8_t _CS, const uint32_t _SPI_CLOCK = DEFAULT_SPI_CLOCK, SPIClass * _SPI = nullptr);
-#else
-        MCP2515(const uint8_t _CS, const uint32_t _SPI_CLOCK = DEFAULT_SPI_CLOCK);
-#endif
-
-#ifdef ESP32
-        /**
-         * @brief ESP32 native constructor with full configuration
-         * @param config Pointer to ESP32 configuration structure
-         */
-        MCP2515(const mcp2515_esp32_config_t* config);
-
-        /**
-         * @brief ESP32 simplified constructor with default pins
-         * @param cs_pin Chip select GPIO pin
-         * @param int_pin Interrupt GPIO pin (GPIO_NUM_NC to disable interrupts)
-         */
-        MCP2515(gpio_num_t cs_pin, gpio_num_t int_pin = GPIO_NUM_NC);
-#endif
-
-        /**
-         * @brief Destructor - cleanup resources
-         */
-        ~MCP2515();
         ERROR reset(void);
         ERROR setConfigMode();
         ERROR setListenOnlyMode();
@@ -635,82 +482,22 @@ class MCP2515
         ERROR setFilter(const RXF num, const bool ext, const uint32_t ulData);
         ERROR sendMessage(const TXBn txbn, const struct can_frame *frame);
         ERROR sendMessage(const struct can_frame *frame);
-        ERROR setTransmitPriority(const TXBn txbn, const uint8_t priority);
-        ERROR abortTransmission(const TXBn txbn);
-        ERROR abortAllTransmissions(void);
-        ERROR IRAM_ATTR readMessage(const RXBn rxbn, struct can_frame *frame);
-        ERROR IRAM_ATTR readMessage(struct can_frame *frame);
-        uint8_t getFilterHit(const RXBn rxbn);
+        ERROR readMessage(const RXBn rxbn, struct can_frame *frame);
+        ERROR readMessage(struct can_frame *frame);
         bool checkReceive(void);
         bool checkError(void);
-        uint8_t IRAM_ATTR getErrorFlags(void);
+        uint8_t getErrorFlags(void);
         void clearRXnOVRFlags(void);
-        uint8_t IRAM_ATTR getInterrupts(void);
+        uint8_t getInterrupts(void);
         uint8_t getInterruptMask(void);
         void clearInterrupts(void);
-        void IRAM_ATTR clearTXInterrupts(void);
-        uint8_t IRAM_ATTR getStatus(void);
+        void clearTXInterrupts(void);
+        uint8_t getStatus(void);
         void clearRXnOVR(void);
         void clearMERR();
-        void IRAM_ATTR clearERRIF();
+        void clearERRIF();
         uint8_t errorCountRX(void);
         uint8_t errorCountTX(void);
-
-#ifdef ESP32
-        // ===========================================
-        // ESP32-specific Public Methods
-        // ===========================================
-
-        /**
-         * @brief Read CAN frame from queue (non-blocking for ESP32 with interrupts)
-         * @param frame Pointer to can_frame structure to fill
-         * @param timeout_ms Timeout in milliseconds (0 = no wait, portMAX_DELAY = wait forever)
-         * @return ERROR_OK on success, ERROR_NOMSG if no message, ERROR_TIMEOUT on timeout
-         */
-        ERROR readMessageQueued(struct can_frame *frame, uint32_t timeout_ms = 0);
-
-        /**
-         * @brief Get number of frames in RX queue
-         * @return Number of frames waiting
-         */
-        uint32_t getRxQueueCount(void);
-
-        /**
-         * @brief Get CAN statistics
-         * @param stats Pointer to statistics structure to fill
-         */
-        void getStatistics(mcp2515_statistics_t* stats);
-
-        /**
-         * @brief Reset statistics counters
-         */
-        void resetStatistics(void);
-
-        /**
-         * @brief Check if library is initialized
-         * @return true if initialized
-         */
-        bool isInitialized(void);
-
-        /**
-         * @brief Enable or disable interrupts
-         * @param enable true to enable, false to disable
-         * @return ERROR_OK on success
-         */
-        ERROR setInterruptMode(bool enable);
-
-        /**
-         * @brief Perform automatic error recovery
-         * @return ERROR_OK if recovery successful
-         */
-        ERROR performErrorRecovery(void);
-
-        /**
-         * @brief Get detailed bus status
-         * @return Bus status flags
-         */
-        uint8_t getBusStatus(void);
-#endif
 };
 
 #endif

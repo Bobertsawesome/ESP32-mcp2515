@@ -137,6 +137,8 @@ MCP2515::MCP2515(const mcp2515_esp32_config_t* config)
     shutdown_requested = false;
     memset(&statistics, 0, sizeof(statistics));
     statistics_mutex = portMUX_INITIALIZER_UNLOCKED;
+    current_mode = CANCTRL_REQOP_CONFIG;  // Default mode after reset
+    interrupts_before_loopback = false;  // Initialize to false
 
     SPICS = config->pins.cs;
     SPI_CLOCK = config->spi_clock_speed;
@@ -171,6 +173,8 @@ MCP2515::MCP2515(gpio_num_t cs_pin, gpio_num_t int_pin)
     shutdown_requested = false;
     memset(&statistics, 0, sizeof(statistics));
     statistics_mutex = portMUX_INITIALIZER_UNLOCKED;
+    current_mode = CANCTRL_REQOP_CONFIG;  // Default mode after reset
+    interrupts_before_loopback = false;  // Initialize to false
 
     SPICS = cs_pin;
     SPI_CLOCK = MCP2515_SPI_CLOCK_SPEED;
@@ -551,11 +555,27 @@ MCP2515::ERROR MCP2515::setSleepMode()
 
 MCP2515::ERROR MCP2515::setLoopbackMode()
 {
+#ifdef ESP32
+    // CRITICAL: Loopback mode is incompatible with interrupt-driven reception
+    // The MCP2515 hardware does not reliably generate RXnIF flags in loopback mode
+    // Force polling-based reception to ensure reliable operation
+    interrupts_before_loopback = use_interrupts;  // Save current state
+    use_interrupts = false;
+    ESP_LOGI(MCP2515_LOG_TAG, "Loopback mode: Disabling interrupts (incompatible with loopback)");
+#endif
+
     return setMode(CANCTRL_REQOP_LOOPBACK);
 }
 
 MCP2515::ERROR MCP2515::setNormalMode()
 {
+#ifdef ESP32
+    // Restore interrupt state if exiting from loopback mode
+    if (current_mode == CANCTRL_REQOP_LOOPBACK && interrupts_before_loopback) {
+        use_interrupts = interrupts_before_loopback;
+        ESP_LOGI(MCP2515_LOG_TAG, "Exiting loopback mode: Restoring interrupts");
+    }
+#endif
     return setMode(CANCTRL_REQOP_NORMAL);
 }
 
@@ -574,6 +594,9 @@ MCP2515::ERROR MCP2515::setMode(const CANCTRL_REQOP_MODE mode)
     // Any SPI activity (including reading CANSTAT) causes immediate wake-up.
     // For Sleep mode, trust that modifyRegister() succeeded above.
     if (mode == CANCTRL_REQOP_SLEEP) {
+#ifdef ESP32
+        current_mode = mode;  // Update mode tracking
+#endif
         return ERROR_OK;
     }
 
@@ -598,6 +621,12 @@ MCP2515::ERROR MCP2515::setMode(const CANCTRL_REQOP_MODE mode)
             break;
         }
     }
+
+#ifdef ESP32
+    if (modeMatch) {
+        current_mode = mode;  // Update mode tracking on successful change
+    }
+#endif
 
     return modeMatch ? ERROR_OK : ERROR_FAIL;
 
@@ -1224,7 +1253,9 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(const RXBn rxbn, struct can_frame 
 
     const struct RXBn_REGS *rxb = &RXB[rxbn];
 
-    uint8_t tbufdata[5];
+    // CRITICAL FIX: Read entire frame in ONE SPI transaction to prevent race conditions
+    // This reads all 13 bytes (5 header + 8 data) atomically
+    uint8_t buffer[13];  // SIDH, SIDL, EID8, EID0, DLC, DATA[0-7]
 
     // Use optimized READ RX BUFFER instruction (saves 1 SPI byte vs standard READ)
     // INSTRUCTION_READ_RX0 (0x90) for RXB0, INSTRUCTION_READ_RX1 (0x94) for RXB1
@@ -1237,9 +1268,9 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(const RXBn rxbn, struct can_frame 
 
     startSPI();
     SPI_TRANSFER(rxbn == RXB0 ? INSTRUCTION_READ_RX0 : INSTRUCTION_READ_RX1);
-    // MCP2515 auto-increments address pointer
-    for (uint8_t i = 0; i < 5; i++) {
-        tbufdata[i] = SPI_TRANSFER(0x00);
+    // Read all 13 bytes in one atomic transaction
+    for (uint8_t i = 0; i < 13; i++) {
+        buffer[i] = SPI_TRANSFER(0x00);
     }
     endSPI();
 
@@ -1247,20 +1278,23 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(const RXBn rxbn, struct can_frame 
     releaseMutex();
 #endif
 
-    uint32_t id = (tbufdata[MCP_SIDH]<<3) + (tbufdata[MCP_SIDL]>>5);
+    // Parse the header
+    uint32_t id = (buffer[MCP_SIDH]<<3) + (buffer[MCP_SIDL]>>5);
 
-    if ( (tbufdata[MCP_SIDL] & TXB_EXIDE_MASK) ==  TXB_EXIDE_MASK ) {
-        id = (id<<2) + (tbufdata[MCP_SIDL] & 0x03);
-        id = (id<<8) + tbufdata[MCP_EID8];
-        id = (id<<8) + tbufdata[MCP_EID0];
+    if ( (buffer[MCP_SIDL] & TXB_EXIDE_MASK) ==  TXB_EXIDE_MASK ) {
+        id = (id<<2) + (buffer[MCP_SIDL] & 0x03);
+        id = (id<<8) + buffer[MCP_EID8];
+        id = (id<<8) + buffer[MCP_EID0];
         id |= CAN_EFF_FLAG;
     }
 
-    uint8_t dlc = (tbufdata[MCP_DLC] & DLC_MASK);
+    uint8_t dlc = (buffer[MCP_DLC] & DLC_MASK);
     if (dlc > CAN_MAX_DLEN) {
         return ERROR_FAIL;
     }
 
+    // Check RTR flag from separate control register read
+    // (Not included in READ RX BUFFER instruction)
     uint8_t ctrl = readRegister(rxb->CTRL);
     if (ctrl & RXBnCTRL_RTR) {
         id |= CAN_RTR_FLAG;
@@ -1269,27 +1303,12 @@ MCP2515::ERROR IRAM_ATTR MCP2515::readMessage(const RXBn rxbn, struct can_frame 
     frame->can_id = id;
     frame->can_dlc = dlc;
 
-    // Read data bytes using optimized READ RX BUFFER command starting at D0
-    // This is a separate SPI transaction starting at the data field
-#ifdef ESP32
-    if (acquireMutex(MCP2515_MUTEX_TIMEOUT) != ERROR_OK) {
-        ESP_LOGE(MCP2515_LOG_TAG, "Failed to acquire mutex in readMessage (data)");
-        return ERROR_FAIL;
-    }
-#endif
-
-    startSPI();
-    // Use 0x92 for RXB0 data, 0x96 for RXB1 data (starts at D0)
-    SPI_TRANSFER((rxbn == RXB0 ? INSTRUCTION_READ_RX0 : INSTRUCTION_READ_RX1) | 0x02);
+    // Copy only the actual data bytes based on DLC
     for (uint8_t i = 0; i < dlc; i++) {
-        frame->data[i] = SPI_TRANSFER(0x00);
+        frame->data[i] = buffer[5 + i];  // Data starts at buffer[5]
     }
-    endSPI();
 
-#ifdef ESP32
-    releaseMutex();
-#endif
-
+    // Clear the RXnIF interrupt flag
     ERROR err;
     if ((err = modifyRegister(MCP_CANINTF, rxb->CANINTF_RXnIF, 0)) != ERROR_OK) return err;
 
@@ -1677,8 +1696,10 @@ MCP2515::ERROR MCP2515::readMessageQueued(struct can_frame *frame, uint32_t time
         return ERROR_NOMSG;
     }
 
-    if (!use_interrupts || rx_queue == NULL) {
-        // Fall back to polling
+    // CRITICAL: In loopback mode, always use polling because RXnIF flags don't fire reliably
+    // This prevents the queue from being used even if interrupts were enabled before loopback
+    if (!use_interrupts || rx_queue == NULL || current_mode == CANCTRL_REQOP_LOOPBACK) {
+        // Fall back to polling (works reliably in loopback mode)
         return readMessage(frame);
     }
 
