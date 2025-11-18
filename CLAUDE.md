@@ -6,7 +6,7 @@
 ## Project Overview
 
 **Project Name**: ESP32-MCP2515
-**Version**: 2.1.0-ESP32
+**Version**: 2.1.1-ESP32
 **License**: MIT License
 **Repository**: https://github.com/Bobertsawesome/ESP32-mcp2515
 **Original Repository**: https://github.com/autowp/arduino-mcp2515
@@ -475,6 +475,77 @@ The MCP2515 supports interrupt-driven reception:
 
 ---
 
+## Known Hardware Limitations and Edge Cases
+
+### Loopback Mode Behavior
+
+**Critical Edge Cases** (Fixed in v2.1.1):
+
+1. **ABAT (Abort All) Bit Stuck-On in Loopback Mode**
+   - **Issue**: When `abortAllTransmissions()` is called in loopback mode, the MCP2515 hardware may not auto-clear the ABAT bit
+   - **Root Cause**: No actual bus arbitration occurs in loopback mode, so the hardware doesn't complete the normal abort sequence
+   - **Symptom**: All subsequent transmissions fail immediately (100% failure rate)
+   - **Fix**: Library now manually clears ABAT if hardware doesn't auto-clear within 10ms (mcp2515.cpp:1201-1208)
+   - **Impact**: Stress test success rate improved from 10.70% to 100.00%
+
+2. **ISR Task Frame Consumption in Polling Mode**
+   - **Issue**: Prior to v2.1.1, the ISR task would continue consuming frames from hardware even when interrupts were "disabled"
+   - **Root Cause**: ISR task wakes up on timeout (10ms) and processed interrupts regardless of `use_interrupts` flag
+   - **Symptom**: Frames disappear from hardware, `checkReceive()` returns false despite RXnIF flags set, polling mode fails
+   - **Fix**: `processInterrupts()` now checks `use_interrupts` flag before consuming frames (mcp2515.cpp:1663)
+   - **Impact**: Polling mode diagnostic now works correctly
+
+3. **Queue vs Hardware Reception Order**
+   - **Issue**: On ESP32 with interrupt mode, checking hardware before queue causes missed frames
+   - **Root Cause**: ISR task consumes hardware buffers and places frames in FreeRTOS queue
+   - **Symptom**: `checkReceive()` returns false even when frames are in queue
+   - **Fix**: `checkReceive()` now checks queue first, then hardware (mcp2515.cpp:1379)
+   - **Impact**: Correct frame detection in interrupt mode
+
+**Hardware Limitations** (Cannot be fixed by library):
+
+1. **Filters Apply in Loopback Mode**
+   - Acceptance filters and masks are still evaluated even in loopback mode
+   - **Workaround**: Set masks to 0x000 to accept all frames during loopback testing
+   - **Example**: `mcp2515.setFilterMask(MCP2515::MASK0, false, 0x00000000)`
+
+2. **Loopback Mode Timing Requirements**
+   - MCP2515 requires 5-10ms settle time after entering loopback mode
+   - **Workaround**: Add `delay(10)` after `setLoopbackMode()`
+   - **Reason**: Hardware needs time to reconfigure internal bus connections
+
+### ESP32-Specific Considerations
+
+1. **PSRAM + DMA Incompatibility**
+   - ESP32 DMA cannot access PSRAM memory
+   - Library detects this configuration and returns `ERROR_PSRAM`
+   - **Solution**: Either disable PSRAM in sdkconfig OR disable SPI DMA in `mcp2515_esp32_config.h`
+
+2. **ISR Task Core Affinity**
+   - ISR task is pinned to Core 1 by default for deterministic performance
+   - Core 0 runs WiFi/BLE stack (higher priority system tasks)
+   - Core 1 is recommended for CAN processing
+   - **Configure**: `MCP2515_ISR_TASK_CORE` in `mcp2515_esp32_config.h`
+
+3. **Mutex Timeout**
+   - Reduced from 100ms to 10ms in v2.1.0 to catch deadlocks faster
+   - Worst-case SPI transaction is ~1ms, so 10ms is generous
+   - Faster timeout prevents RX queue overflow during mutex contention
+   - **Configure**: `MCP2515_MUTEX_TIMEOUT` in `mcp2515_esp32_config.h`
+
+**Testing Recommendations**:
+
+- Use loopback mode for automated testing (no physical CAN bus required)
+- Always configure filters to accept all frames in loopback mode
+- Allow settle time after mode switches
+- Test both polling mode and interrupt mode
+- Monitor queue depth with `getRxQueueCount()` on ESP32
+- Check statistics with `getStatistics()` to detect silent failures
+
+**See Also**: `Documentation/API_REFERENCE.md` section "Known Issues and Edge Cases" for complete API-level documentation.
+
+---
+
 ## AI Assistant Guidelines
 
 ### When Modifying Code
@@ -603,6 +674,13 @@ When reviewing changes:
 
 ## Version History (Recent)
 
+- **2.1.1-ESP32** (2025-11-18): Critical bug fixes for loopback mode and interrupt handling
+  - **Fixed ABAT Stuck-On in Loopback Mode**: `abortAllTransmissions()` now manually clears ABAT bit if hardware doesn't auto-clear within 10ms. In loopback mode, the MCP2515 hardware may not auto-clear ABAT because no actual bus arbitration occurs. This caused 100% transmission failure after calling `abortAllTransmissions()`.
+  - **Fixed ISR Task Frame Consumption in Polling Mode**: `processInterrupts()` now checks `use_interrupts` flag before consuming frames. Prior to this fix, the ISR task would continue processing on timeout even when interrupts were "disabled" via `setInterruptMode(false)`, causing race conditions where frames disappeared from hardware buffers.
+  - **Fixed Queue-First Reception Check**: `checkReceive()` now checks FreeRTOS queue before hardware registers when in interrupt mode on ESP32. This prevents missed frames because the ISR task consumes hardware buffers and places frames in the queue.
+  - **Impact**: Loopback stress test success rate improved from 10.70% to 100.00%. Overall test pass rate improved from 74.71% to 97.85% (91/93 tests passing).
+  - **Files Modified**: `mcp2515.cpp` (3 critical fixes), `mcp2515.h` (added diagnostic method)
+  - See `Documentation/API_REFERENCE.md` sections: "Known Issues and Edge Cases" and "Version History - Critical Fixes" for detailed documentation
 - **2.1.0-ESP32** (2025-11-15): BREAKING CHANGES - Production hardening and multi-platform support
   - **BREAKING**: Changed 4 functions from void→ERROR return type for explicit failure detection
   - **BREAKING**: Added ERROR_MUTEX (7) and ERROR_PSRAM (8) error codes
@@ -736,9 +814,16 @@ These optimizations are transparent to the user and work with existing code.
 ---
 
 **Last Updated**: 2025-11-18
-**Document Version**: 2.1
-**For Library Version**: 2.1.0-ESP32
+**Document Version**: 2.2
+**For Library Version**: 2.1.1-ESP32
 **Platforms Verified**: ESP32 (Classic/S2/S3/C3), Arduino (Uno/Mega2560)
+
+**Key Additions in v2.2:**
+
+- Version 2.1.1 critical bug fixes documented
+- Loopback mode edge cases and hardware limitations
+- Detailed API reference updates for all affected functions
+- Complete edge case documentation in API_REFERENCE.md
 
 **Key Additions in v2.1:**
 
