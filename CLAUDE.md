@@ -58,24 +58,26 @@ The library intelligently adapts to each platform, providing ESP32-specific feat
 
 ```
 ESP32-mcp2515/
-├── mcp2515.h                  # Main MCP2515 driver class header
-├── mcp2515.cpp                # Main MCP2515 driver implementation
-├── mcp2515_esp32_config.h     # ESP32-specific configuration
-├── can.h                      # CAN frame structures (Linux SocketCAN compatible)
 ├── library.properties         # Arduino library metadata
 ├── keywords.txt               # Arduino IDE syntax highlighting keywords
 ├── platformio.ini             # PlatformIO multi-platform build configuration
 ├── README.md                  # User documentation
 ├── CLAUDE.md                  # AI assistant development guide (this file)
 ├── LICENSE.md                 # MIT License
+├── RELEASE_NOTES_v2.1.1.md    # v2.1.1 release documentation
 ├── CMakeLists.txt            # ESP-IDF CMake configuration (optional)
 ├── Kconfig                    # ESP-IDF configuration options (optional)
-├── src/                       # PlatformIO test application
-│   └── main.cpp              # Comprehensive test suite
+├── src/                       # Library source files (Arduino 1.5+ format)
+│   ├── mcp2515.h             # Main MCP2515 driver class header
+│   ├── mcp2515.cpp           # Main MCP2515 driver implementation
+│   ├── mcp2515_esp32_config.h # ESP32-specific configuration
+│   ├── can.h                 # CAN frame structures (Linux SocketCAN compatible)
+│   └── main.cpp              # Comprehensive test suite (PlatformIO)
 ├── examples/                  # Example Arduino sketches
 │   ├── CAN_read/             # Basic CAN frame reception example
 │   ├── CAN_write/            # Basic CAN frame transmission example
 │   ├── CAN_SpeedTest/        # Performance testing example
+│   ├── ESP32_CAN_advanced/   # ESP32-specific advanced example
 │   ├── ESP32_CAN_comprehensive_test/ # ESP32-specific comprehensive test
 │   ├── wiring.png            # MCP2515 shield wiring diagram
 │   └── wiring-diy.png        # DIY MCP2515 wiring diagram
@@ -99,14 +101,16 @@ ESP32-mcp2515/
 
 ### Core Files
 
-#### `can.h`
+All library source files are located in the `src/` directory following Arduino Library Specification 1.5+.
+
+#### `src/can.h`
 
 - Defines Linux SocketCAN-compatible structures and constants
 - Main structure: `struct can_frame` with `can_id`, `can_dlc`, and `data[8]`
 - CAN ID flags: `CAN_EFF_FLAG`, `CAN_RTR_FLAG`, `CAN_ERR_FLAG`
 - Frame format masks: `CAN_SFF_MASK` (11-bit), `CAN_EFF_MASK` (29-bit)
 
-#### `mcp2515.h`
+#### `src/mcp2515.h`
 
 - Main driver class definition
 - Bitrate configuration tables for 8 MHz, 16 MHz, and 20 MHz oscillators
@@ -114,7 +118,7 @@ ESP32-mcp2515/
 - Public API for initialization, configuration, send/receive operations
 - Private SPI communication methods and register manipulation
 
-#### `mcp2515.cpp`
+#### `src/mcp2515.cpp`
 
 - Complete implementation of the MCP2515 driver
 - SPI communication protocol implementation
