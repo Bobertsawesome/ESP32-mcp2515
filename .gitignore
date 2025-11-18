@@ -27,6 +27,6 @@ build/
 lib/MCP2515/
 test_build/
 
-# Build verification logs
+# Testing and build logs
 *.log
-logs/
+_Testing/logs/
