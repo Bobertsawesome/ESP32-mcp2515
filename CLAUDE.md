@@ -23,6 +23,7 @@
 - `Documentation/ESP32_COMPREHENSIVE_AUDIT_2025-11-15.md` - ESP32-specific comprehensive audit
 - `Documentation/PRODUCTION_CRITICAL_FIXES_2025-11-15.md` - Production bug fixes
 - `Documentation/PLATFORMIO_BUILD_TESTING_GUIDE.md` - Build automation guide for agent development
+- `Documentation/PLATFORMIO_TESTING_METHODOLOGY.md` - Complete testing workflow (build, upload, monitor)
 - `BUILD_VERIFICATION_REPORT.md` - Multi-platform build verification (ESP32 + Arduino)
 - `EMBEDDED_SYSTEMS_AUDIT.md` - Embedded systems audit report
 
@@ -69,19 +70,14 @@ ESP32-mcp2515/
 ├── library.properties         # Arduino library metadata
 ├── keywords.txt               # Arduino IDE syntax highlighting keywords
 ├── platformio.ini             # PlatformIO multi-platform build configuration
+├── read_serial.py             # Serial monitoring script for autonomous testing
 ├── README.md                  # User documentation
 ├── CLAUDE.md                  # AI assistant development guide (this file)
 ├── LICENSE.md                 # MIT License
 ├── BUILD_VERIFICATION_REPORT.md # Multi-platform build results
 ├── EMBEDDED_SYSTEMS_AUDIT.md  # Embedded systems audit
-├── lib/                       # PlatformIO library directory
-│   └── MCP2515/              # Library source for PlatformIO
-│       ├── mcp2515.h
-│       ├── mcp2515.cpp
-│       ├── mcp2515_esp32_config.h
-│       └── can.h
-├── test_build/                # PlatformIO test build directory
-│   └── main.cpp              # Comprehensive API compilation test
+├── src/                       # PlatformIO test application
+│   └── main.cpp              # Comprehensive test suite
 ├── examples/                  # Example Arduino sketches
 │   ├── CAN_read/             # Basic CAN frame reception example
 │   ├── CAN_write/            # Basic CAN frame transmission example
@@ -94,36 +90,40 @@ ESP32-mcp2515/
 │   ├── DATASHEET_COMPLIANCE_ANALYSIS.md
 │   ├── ESP32_COMPREHENSIVE_AUDIT_2025-11-15.md
 │   ├── PRODUCTION_CRITICAL_FIXES_2025-11-15.md
-│   └── PLATFORMIO_BUILD_TESTING_GUIDE.md
-└── Tests/                     # Test suite
-    └── README.md
+│   ├── PLATFORMIO_BUILD_TESTING_GUIDE.md
+│   └── PLATFORMIO_TESTING_METHODOLOGY.md
+└── logs/                      # Test output logs (gitignored)
+    └── test_YYMMDD_HHMMSS.log
 ```
 
 ### Core Files
 
-#### `can.h` (45 lines)
-
+#### `can.h`
 - Defines Linux SocketCAN-compatible structures and constants
 - Main structure: `struct can_frame` with `can_id`, `can_dlc`, and `data[8]`
 - CAN ID flags: `CAN_EFF_FLAG`, `CAN_RTR_FLAG`, `CAN_ERR_FLAG`
 - Frame format masks: `CAN_SFF_MASK` (11-bit), `CAN_EFF_MASK` (29-bit)
 
-#### `mcp2515.h` (~503 lines)
-
+#### `mcp2515.h`
 - Main driver class definition
 - Bitrate configuration tables for 8 MHz, 16 MHz, and 20 MHz oscillators
 - Enumerations for speeds, clocks, modes, errors, registers, and instructions
 - Public API for initialization, configuration, send/receive operations
 - Private SPI communication methods and register manipulation
 
-#### `mcp2515.cpp` (~670 lines estimated)
-
+#### `mcp2515.cpp`
 - Complete implementation of the MCP2515 driver
 - SPI communication protocol implementation
 - Register read/write operations
 - Mode switching, bitrate configuration
 - Frame transmission and reception logic
 - Filter and mask configuration
+
+#### `src/main.cpp`
+- Comprehensive test suite for library validation
+- Tests initialization, transmission, reception, modes, filters, and stress testing
+- Outputs pass/fail results with detailed diagnostics
+- Used for autonomous testing and development
 
 ---
 
@@ -254,16 +254,103 @@ The library follows Arduino Library Specification 1.5:
 
 ---
 
+## Testing and Development
+
+### Build System
+
+The project uses **PlatformIO** for development and testing with zero-friction configuration:
+
+**Build configuration** (`platformio.ini`):
+- Library source files build directly from root directory (no copying required)
+- Changes to `mcp2515.cpp`/`mcp2515.h` take effect immediately on next build
+- Test application in `src/main.cpp`
+- Supports ESP32 (Classic, S2, S3, C3) and Arduino (Uno, Mega) platforms
+
+### Quick Start Commands
+
+**Build only:**
+```bash
+pio run -e esp32-s3
+```
+
+**Build and upload:**
+```bash
+pio run -e esp32-s3 -t upload
+```
+
+**Clean build:**
+```bash
+pio run -e esp32-s3 -t clean
+pio run -e esp32-s3
+```
+
+### Serial Monitoring
+
+**Problem**: Native PlatformIO monitor (`pio run -t monitor`) doesn't work in non-interactive environments.
+
+**Solution**: Use the custom `read_serial.py` script:
+
+```bash
+# Prerequisites (one-time setup)
+python3 -m venv ~/.venvs/pyserial
+source ~/.venvs/pyserial/bin/activate
+pip install pyserial
+
+# Monitor serial output (30 second capture)
+~/.venvs/pyserial/bin/python read_serial.py
+
+# Save to log file
+~/.venvs/pyserial/bin/python read_serial.py | tee logs/test_$(date +%y%m%d_%H%M%S).log
+```
+
+### Complete Test Cycle
+
+**1. Build and Upload:**
+```bash
+cd /path/to/ESP32-mcp2515
+pio run -e esp32-s3 -t upload
+```
+
+**2. Monitor Output:**
+```bash
+~/.venvs/pyserial/bin/python read_serial.py
+```
+
+**3. Analyze Results:**
+- Look for `[PASS]` and `[FAIL]` markers
+- Check pass rate (should be >95% for production)
+- Review stress test success rate
+- Identify specific failing tests for debugging
+
+### Autonomous Testing Workflow
+
+For AI agents performing iterative development:
+
+1. Make code changes to `mcp2515.cpp`/`mcp2515.h`
+2. Build and upload firmware
+3. Capture serial output with `read_serial.py`
+4. Parse test results (pass/fail rates, error patterns)
+5. If pass rate <95%, analyze failures and repeat
+
+**Key Metrics:**
+- **Pass Rate**: >95% required for production
+- **Stress Test Success**: >95% required for reliable operation
+- **Memory Usage**: Monitor for leaks or excessive consumption
+- **Queue Overflow**: "RX queue full" warnings indicate performance issues
+
+**Detailed documentation**: See `Documentation/PLATFORMIO_TESTING_METHODOLOGY.md`
+
+---
+
 ## Common Development Tasks
 
 ### 1. Adding New Bitrate Configurations
 
 When adding support for a new bitrate or clock frequency:
 
-**Location**: `mcp2515.h` lines 8-174
+**Location**: `mcp2515.h` (bitrate configuration section)
 
 **Pattern**:
-
 ```cpp
 #define MCP_<CLOCK>MHz_<SPEED>kBPS_CFG1 (0xXX)
 #define MCP_<CLOCK>MHz_<SPEED>kBPS_CFG2 (0xXX)
@@ -276,8 +363,7 @@ When adding support for a new bitrate or clock frequency:
 
 ### 2. Adding New Operating Modes
 
-**Existing modes** (see `mcp2515.h:275-283`):
-
+**Existing modes** (see `CANCTRL_REQOP_MODE` enum in `mcp2515.h`):
 - `CANCTRL_REQOP_NORMAL`
 - `CANCTRL_REQOP_LOOPBACK`
 - `CANCTRL_REQOP_LISTENONLY`
@@ -285,7 +371,6 @@ When adding support for a new bitrate or clock frequency:
 - `CANCTRL_REQOP_OSM` (One-Shot Mode)
 
 **To add new mode**:
-
 1. Add enum value in `CANCTRL_REQOP_MODE`
 2. Create public method: `ERROR set<Mode>Mode()`
 3. Implement using `setMode(CANCTRL_REQOP_<MODE>)`
@@ -293,61 +378,28 @@ When adding support for a new bitrate or clock frequency:
 ### 3. Extending Filter/Mask Functionality
 
 **Current implementation**:
-
 - `setFilterMask(MASK num, bool ext, uint32_t ulData)`
 - `setFilter(RXF num, bool ext, uint32_t ulData)`
 
 **Key considerations**:
-
-- Filters are applied during initialization in `reset()` (mcp2515.cpp:72-87)
+- Filters are applied during initialization in `reset()`
 - Default: Accept all frames (masks set to 0)
 - `ext` parameter: `false` for standard (11-bit), `true` for extended (29-bit)
 - Filter matching uses bitwise AND with mask
 
-### 4. Modifying Examples
+### 4. Hardware Testing
 
-**Guidelines**:
-
-- Keep examples simple and focused on one concept
-- Use Serial at 115200 baud for consistency
-- Include `while (!Serial);` for boards with USB-Serial
-- Always call `reset()`, `setBitrate()`, and set mode in `setup()`
-- Use descriptive CAN IDs (avoid 0x000 in production)
-
-**Example template**:
-
-```cpp
-#include <SPI.h>
-#include <mcp2515.h>
-
-MCP2515 mcp2515(10);  // CS pin
-
-void setup() {
-  Serial.begin(115200);
-  mcp2515.reset();
-  mcp2515.setBitrate(CAN_125KBPS, MCP_16MHZ);
-  mcp2515.setNormalMode();
-}
-
-void loop() {
-  // Your code here
-}
-```
-
-### 5. Testing Changes
-
-**Manual Testing**:
-
-- Use two Arduino boards with MCP2515 modules
+**Manual Two-Device Testing**:
+- Use two boards with MCP2515 modules
 - One as sender (CAN_write example), one as receiver (CAN_read example)
 - Connect CAN_H, CAN_L, and GND between modules
 - Add 120Ω termination resistors at both ends of CAN bus
 
-**Travis CI**:
-
-- Automatic build testing on commit/PR
-- Tests compilation for multiple Arduino platforms
-- Located in `.travis.yml`
+**Loopback Testing**:
+- Single device setup (no physical CAN bus required)
+- MCP2515 loops frames back internally
+- Still requires INT pin for interrupt-driven reception
+- Use `setLoopbackMode()` for testing
 
 ---
 
@@ -372,8 +424,8 @@ The MCP2515 uses SPI Mode 0 (CPOL=0, CPHA=0):
 
 ### Timing Considerations
 
-1. **Reset delay**: 10ms after reset command (mcp2515.cpp:47)
-2. **Mode switching**: Waits for mode change confirmation (polling CANSTAT)
+1. **Reset delay**: 10ms after reset command
+2. **Mode switching**: Waits for mode change confirmation (polling CANSTAT register)
 3. **Message transmission**: Non-blocking; check status with `getInterrupts()`
 
 ### Memory Layout
@@ -392,8 +444,7 @@ The MCP2515 uses SPI Mode 0 (CPOL=0, CPHA=0):
 
 The MCP2515 supports interrupt-driven reception:
 
-**Interrupt flags** (see `mcp2515.h:246-255`):
-
+**Interrupt flags** (see CANINTF register definitions in `mcp2515.h`):
 - `CANINTF_RX0IF`: Message in RXB0
 - `CANINTF_RX1IF`: Message in RXB1
 - `CANINTF_TX0IF/1IF/2IF`: Transmission complete
@@ -402,7 +453,6 @@ The MCP2515 supports interrupt-driven reception:
 - `CANINTF_MERRF`: Message error interrupt
 
 **Methods**:
-
 - `getInterrupts()`: Read interrupt flags
 - `clearInterrupts()`: Clear all interrupt flags
 - `clearTXInterrupts()`: Clear TX interrupt flags only
@@ -490,22 +540,23 @@ When reviewing changes:
 
 ### Debug Methods
 
-```cpp
-// Check if MCP2515 is responding
-if (mcp2515.reset() != MCP2515::ERROR_OK) {
-    Serial.println("MCP2515 not responding!");
-}
+**Check Hardware Connection:**
+- Use `reset()` and check for `ERROR_OK` return value
+- Verify SPI communication is working
 
-// Monitor error flags
-uint8_t errors = mcp2515.getErrorFlags();
-if (errors & MCP2515::EFLG_RX0OVR) Serial.println("RX0 overflow");
-if (errors & MCP2515::EFLG_RX1OVR) Serial.println("RX1 overflow");
-if (errors & MCP2515::EFLG_TXBO) Serial.println("Bus-off");
+**Monitor Error Flags:**
+- Use `getErrorFlags()` to read error conditions
+- Check for `EFLG_RX0OVR`, `EFLG_RX1OVR` (buffer overflow)
+- Check for `EFLG_TXBO` (bus-off condition)
 
-// Check error counters
-Serial.print("RX errors: "); Serial.println(mcp2515.errorCountRX());
-Serial.print("TX errors: "); Serial.println(mcp2515.errorCountTX());
-```
+**Check Error Counters:**
+- Use `errorCountRX()` to read receive error counter
+- Use `errorCountTX()` to read transmit error counter
+- Rising counters indicate communication issues
+
+**ESP32-Specific Diagnostics:**
+- Use `getStatistics()` to retrieve comprehensive stats
+- Monitor RX/TX frame counts, errors, overflows, and bus-off events
 
 ---
 
@@ -664,7 +715,13 @@ These optimizations are transparent to the user and work with existing code.
 
 ---
 
-**Last Updated**: 2025-11-15
-**Document Version**: 2.0
+**Last Updated**: 2025-11-18
+**Document Version**: 2.1
 **For Library Version**: 2.1.0-ESP32
 **Platforms Verified**: ESP32 (Classic/S2/S3/C3), Arduino (Uno/Mega2560)
+
+**Key Additions in v2.1:**
+- Testing and Development section with PlatformIO workflow
+- Serial monitoring with `read_serial.py` script
+- Autonomous testing workflow for AI agents
+- Removed specific line number references for maintainability
