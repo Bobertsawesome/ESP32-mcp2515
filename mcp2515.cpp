@@ -1824,6 +1824,16 @@ MCP2515::ERROR MCP2515::performErrorRecovery(void)
     return ERROR_OK;
 }
 
+uint8_t MCP2515::getCANCTRL(void)
+{
+    return readRegister(MCP_CANCTRL);
+}
+
+uint8_t MCP2515::getCANSTAT(void)
+{
+    return readRegister(MCP_CANSTAT);
+}
+
 uint8_t MCP2515::getBusStatus(void)
 {
     return readRegister(MCP_CANSTAT);

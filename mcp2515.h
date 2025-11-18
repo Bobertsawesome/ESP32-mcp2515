@@ -705,6 +705,18 @@ class MCP2515
         ERROR performErrorRecovery(void);
 
         /**
+         * @brief Get CANCTRL register value for diagnostics
+         * @return CANCTRL register contents
+         */
+        uint8_t getCANCTRL(void);
+
+        /**
+         * @brief Get CANSTAT register value for diagnostics
+         * @return CANSTAT register contents
+         */
+        uint8_t getCANSTAT(void);
+
+        /**
          * @brief Get detailed bus status
          * @return Bus status flags
          */

@@ -25,6 +25,12 @@ try:
     print(f"Logging to: {log_filename}", file=sys.stderr)
     print("=" * 80, file=sys.stderr)
 
+    # Wait briefly for ESP32 to be ready, then send ENTER to start tests
+    time.sleep(1)
+    ser.write(b'\n')
+    ser.flush()
+    print("Sent ENTER to start tests", file=sys.stderr)
+
     with open(log_filename, 'w') as log_file:
         start_time = time.time()
         while (time.time() - start_time) < timeout:

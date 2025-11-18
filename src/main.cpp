@@ -921,6 +921,67 @@ void test_reception(uint32_t settle_time_ms) {
     // CRITICAL: Drain ALL buffers before test
     drain_all_rx_buffers();
 
+    // DIAGNOSTIC: Check MCP2515 state after drain to see if chip entered error state
+    if (mcp2515_connected) {
+        print_subheader("DIAGNOSTIC: MCP2515 State After Drain");
+
+        uint8_t eflg = can->getErrorFlags();
+        uint8_t tec = can->errorCountTX();
+        uint8_t rec = can->errorCountRX();
+        uint8_t canctrl = can->getCANCTRL();
+        uint8_t canstat = can->getCANSTAT();
+
+        safe_printf("  Error Flags (EFLG):    0x%02X", eflg);
+        if (eflg == 0) {
+            safe_printf(" %s[OK]%s\n", ANSI_GREEN, ANSI_RESET);
+        } else {
+            safe_printf(" %s[ERROR]%s", ANSI_RED, ANSI_RESET);
+            if (eflg & 0x80) safe_printf(" RX1OVR");
+            if (eflg & 0x40) safe_printf(" RX0OVR");
+            if (eflg & 0x20) safe_printf(" TXBO");
+            if (eflg & 0x10) safe_printf(" TXEP");
+            if (eflg & 0x08) safe_printf(" RXEP");
+            if (eflg & 0x04) safe_printf(" TXWAR");
+            if (eflg & 0x02) safe_printf(" RXWAR");
+            if (eflg & 0x01) safe_printf(" EWARN");
+            safe_printf("\n");
+        }
+
+        safe_printf("  TX Error Count (TEC):  %u", tec);
+        if (tec == 0) {
+            safe_printf(" %s[OK]%s\n", ANSI_GREEN, ANSI_RESET);
+        } else if (tec < 96) {
+            safe_printf(" %s[WARN - Error Active]%s\n", ANSI_YELLOW, ANSI_RESET);
+        } else if (tec < 128) {
+            safe_printf(" %s[ERROR - Error Passive]%s\n", ANSI_RED, ANSI_RESET);
+        } else {
+            safe_printf(" %s[CRITICAL - Bus Off]%s\n", ANSI_RED, ANSI_RESET);
+        }
+
+        safe_printf("  RX Error Count (REC):  %u", rec);
+        if (rec == 0) {
+            safe_printf(" %s[OK]%s\n", ANSI_GREEN, ANSI_RESET);
+        } else if (rec < 96) {
+            safe_printf(" %s[WARN - Error Active]%s\n", ANSI_YELLOW, ANSI_RESET);
+        } else if (rec < 128) {
+            safe_printf(" %s[ERROR - Error Passive]%s\n", ANSI_RED, ANSI_RESET);
+        } else {
+            safe_printf(" %s[CRITICAL]%s\n", ANSI_RED, ANSI_RESET);
+        }
+
+        safe_printf("  CANCTRL Register:      0x%02X (Mode: 0x%02X", canctrl, (canctrl >> 5) & 0x07);
+        uint8_t mode = (canctrl >> 5) & 0x07;
+        if (mode == 0x02) {
+            safe_printf(" - Loopback) %s[OK]%s\n", ANSI_GREEN, ANSI_RESET);
+        } else {
+            safe_printf(" - NOT LOOPBACK!) %s[ERROR]%s\n", ANSI_RED, ANSI_RESET);
+        }
+
+        safe_printf("  CANSTAT Register:      0x%02X (Mode: 0x%02X)\n", canstat, (canstat >> 5) & 0x07);
+
+        safe_printf("\n");
+    }
+
     // Test checkReceive
     print_subheader("Test: checkReceive()");
 
