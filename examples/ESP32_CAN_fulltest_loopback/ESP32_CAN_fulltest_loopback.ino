@@ -1831,6 +1831,260 @@ void test_stress(CAN_SPEED speed, uint32_t settle_time_ms) {
 }
 
 // ============================================================================
+// TEST: Maximum Throughput Test
+// ============================================================================
+
+void test_maximum_throughput(CAN_SPEED speed, uint32_t settle_time_ms) {
+    print_header("MAXIMUM THROUGHPUT TEST");
+
+    const uint32_t TEST_DURATION_MS = 10000;  // 10 second test
+
+    // Get CAN bitrate for this speed
+    uint32_t can_bitrate = 0;
+    switch(speed) {
+        case CAN_10KBPS:   can_bitrate = 10000; break;
+        case CAN_50KBPS:   can_bitrate = 50000; break;
+        case CAN_125KBPS:  can_bitrate = 125000; break;
+        case CAN_250KBPS:  can_bitrate = 250000; break;
+        case CAN_500KBPS:  can_bitrate = 500000; break;
+        case CAN_1000KBPS: can_bitrate = 1000000; break;
+        default: can_bitrate = 250000; break;
+    }
+
+    // Initialize counters
+    uint32_t packets_attempted = 0;
+    uint32_t packets_sent_ok = 0;
+    uint32_t packets_received = 0;
+    uint32_t tx_errors = 0;
+    uint32_t rx_errors = 0;
+    uint32_t data_errors = 0;
+    uint32_t tx_buffer_full_events = 0;
+    uint32_t total_bytes_sent = 0;
+
+    safe_printf("%s[INFO]%s Testing maximum throughput at %s (%u bps) for %u seconds%s\n",
+               ANSI_CYAN, ANSI_RESET, get_speed_name(speed), can_bitrate,
+               TEST_DURATION_MS / 1000, ANSI_RESET);
+
+    // Drain RX buffers before test
+    struct can_frame drain_frame;
+    while (can->readMessageQueued(&drain_frame, 0) == MCP2515::ERROR_OK) {
+        // Discard
+    }
+
+    // Get baseline statistics
+    mcp2515_statistics_t stats_before;
+    can->getStatistics(&stats_before);
+
+    // Start timing
+    unsigned long start_time = millis();
+    unsigned long last_rx_check = start_time;
+    unsigned long last_progress = start_time;
+
+    // Prime the TX buffers by sending first 3 packets
+    for (int buf = 0; buf < 3; buf++) {
+        struct can_frame tx_frame;
+        tx_frame.can_id = 0x200 + (packets_attempted % 256);
+        tx_frame.can_dlc = 8;
+
+        uint32_t pattern = 0xBB000000 | (packets_attempted & 0x00FFFFFF);
+        memcpy(tx_frame.data, &pattern, 4);
+        memcpy(tx_frame.data + 4, &pattern, 4);
+
+        MCP2515::TXBn txbn = (MCP2515::TXBn)buf;
+        MCP2515::ERROR err = can->sendMessage(txbn, &tx_frame);
+
+        packets_attempted++;
+        if (err == MCP2515::ERROR_OK) {
+            packets_sent_ok++;
+            total_bytes_sent += 8;
+        } else {
+            tx_errors++;
+        }
+    }
+
+    // Transmission loop - run for fixed duration
+    while (millis() - start_time < TEST_DURATION_MS) {
+
+        // ---- TRANSMISSION PHASE ----
+        // Continuously try to send to all buffers (library will return busy if not ready)
+        for (int buf = 0; buf < 3; buf++) {
+            // Prepare frame
+            struct can_frame tx_frame;
+            tx_frame.can_id = 0x200 + (packets_attempted % 256);
+            tx_frame.can_dlc = 8;
+
+            // Unique pattern for verification (use lower 24 bits of packet number)
+            uint32_t pattern = 0xBB000000 | (packets_attempted & 0x00FFFFFF);
+            memcpy(tx_frame.data, &pattern, 4);
+            memcpy(tx_frame.data + 4, &pattern, 4);
+
+            // Try to send to this buffer
+            MCP2515::TXBn txbn = (MCP2515::TXBn)buf;
+            MCP2515::ERROR err = can->sendMessage(txbn, &tx_frame);
+
+            packets_attempted++;
+
+            if (err == MCP2515::ERROR_OK) {
+                packets_sent_ok++;
+                total_bytes_sent += 8;
+            } else if (err == MCP2515::ERROR_ALLTXBUSY) {
+                tx_buffer_full_events++;
+                // Don't count as error - buffer is just busy
+            } else {
+                tx_errors++;
+            }
+        }
+
+        // ---- RECEPTION PHASE ----
+        // Drain RX queue periodically (every 5ms) to prevent overflow
+        if (millis() - last_rx_check >= 5) {
+            last_rx_check = millis();
+
+            // Read all available frames from queue
+            struct can_frame rx_frame;
+            while (can->readMessageQueued(&rx_frame, 0) == MCP2515::ERROR_OK) {
+                packets_received++;
+
+                // Basic data verification (check pattern marker)
+                uint32_t expected_marker = 0xBB000000;
+                uint32_t received_pattern;
+                memcpy(&received_pattern, rx_frame.data, 4);
+
+                if ((received_pattern & 0xFF000000) != expected_marker) {
+                    data_errors++;
+                }
+            }
+        }
+
+        // Progress update every 2 seconds
+        if (millis() - last_progress >= 2000) {
+            last_progress = millis();
+            uint32_t elapsed = millis() - start_time;
+            uint32_t percent = (elapsed * 100) / TEST_DURATION_MS;
+            safe_printf("%s[INFO]%s Progress: %u%% (%u/%u packets sent, %u received)%s\n",
+                       ANSI_CYAN, ANSI_RESET, percent, packets_sent_ok, packets_attempted,
+                       packets_received, ANSI_RESET);
+        }
+
+        // Yield briefly to allow ISR task to process
+        delayMicroseconds(1);
+    }
+
+    // ---- FINAL RX DRAIN ----
+    // Allow time for in-flight frames to arrive
+    delay(100);
+
+    // Drain remaining RX frames
+    struct can_frame rx_frame;
+    while (can->readMessageQueued(&rx_frame, 10) == MCP2515::ERROR_OK) {
+        packets_received++;
+
+        uint32_t expected_marker = 0xBB000000;
+        uint32_t received_pattern;
+        memcpy(&received_pattern, rx_frame.data, 4);
+
+        if ((received_pattern & 0xFF000000) != expected_marker) {
+            data_errors++;
+        }
+    }
+
+    unsigned long elapsed_ms = millis() - start_time;
+
+    // Get final statistics
+    mcp2515_statistics_t stats_after;
+    can->getStatistics(&stats_after);
+
+    // ---- CALCULATE RESULTS ----
+    float elapsed_sec = elapsed_ms / 1000.0;
+
+    // Packet metrics
+    float packets_per_sec = packets_sent_ok / elapsed_sec;
+    float received_per_sec = packets_received / elapsed_sec;
+
+    // Byte/bit metrics (only count successfully received data)
+    uint32_t total_bytes_received = packets_received * 8;
+    float bytes_per_sec = total_bytes_received / elapsed_sec;
+    float bits_per_sec = bytes_per_sec * 8;
+    float kilobits_per_sec = bits_per_sec / 1000.0;
+
+    // Error rates
+    float tx_error_rate = packets_attempted > 0 ? (tx_errors * 100.0) / packets_attempted : 0;
+    float rx_error_rate = packets_sent_ok > 0 ? ((packets_sent_ok - packets_received) * 100.0) / packets_sent_ok : 0;
+    float data_error_rate = packets_received > 0 ? (data_errors * 100.0) / packets_received : 0;
+
+    // Bus utilization
+    const uint32_t bits_per_frame = 47 + 64;  // Standard frame overhead + 8 data bytes
+    float theoretical_max_fps = can_bitrate / (float)bits_per_frame;
+    float bus_utilization = (received_per_sec / theoretical_max_fps) * 100.0;
+
+    // Hardware statistics delta
+    uint32_t hw_rx_overflow = stats_after.rx_overflow - stats_before.rx_overflow;
+    uint32_t hw_tx_errors = stats_after.tx_errors - stats_before.tx_errors;
+    uint32_t hw_rx_errors = stats_after.rx_errors - stats_before.rx_errors;
+
+    // ---- PRINT RESULTS ----
+    print_subheader("Maximum Throughput Test Results");
+
+    safe_printf("\n%s--- Transmission Statistics ---%s\n", ANSI_CYAN, ANSI_RESET);
+    safe_printf("  Packets attempted:      %u\n", packets_attempted);
+    safe_printf("  Packets sent OK:        %u\n", packets_sent_ok);
+    safe_printf("  TX errors:              %u\n", tx_errors);
+    safe_printf("  TX buffer full events:  %u\n", tx_buffer_full_events);
+    safe_printf("  TX error rate:          %.2f%%\n", tx_error_rate);
+
+    safe_printf("\n%s--- Reception Statistics ---%s\n", ANSI_CYAN, ANSI_RESET);
+    safe_printf("  Packets received:       %u\n", packets_received);
+    safe_printf("  Packet loss:            %u\n", packets_sent_ok - packets_received);
+    safe_printf("  Data corruption:        %u\n", data_errors);
+    safe_printf("  RX error rate:          %.2f%%\n", rx_error_rate);
+    safe_printf("  Data error rate:        %.2f%%\n", data_error_rate);
+
+    safe_printf("\n%s--- Throughput Metrics ---%s\n", ANSI_CYAN, ANSI_RESET);
+    safe_printf("  Test duration:          %.3f seconds\n", elapsed_sec);
+    safe_printf("  Packets per second:     %.2f pps (sent: %.2f pps)\n", received_per_sec, packets_per_sec);
+    safe_printf("  Bytes per second:       %.2f B/s\n", bytes_per_sec);
+    safe_printf("  Bits per second:        %.2f bps (%.2f kbps)\n", bits_per_sec, kilobits_per_sec);
+    safe_printf("  Total data transferred: %u bytes\n", total_bytes_received);
+
+    safe_printf("\n%s--- Bus Performance ---%s\n", ANSI_CYAN, ANSI_RESET);
+    safe_printf("  CAN bitrate:            %u bps (%u kbps)\n", can_bitrate, can_bitrate / 1000);
+    safe_printf("  Theoretical max:        %.2f pps\n", theoretical_max_fps);
+    safe_printf("  Bus utilization:        %.2f%%\n", bus_utilization);
+
+    safe_printf("\n%s--- Hardware Counters (Delta) ---%s\n", ANSI_CYAN, ANSI_RESET);
+    safe_printf("  HW RX overflow:         %u\n", hw_rx_overflow);
+    safe_printf("  HW TX errors:           %u\n", hw_tx_errors);
+    safe_printf("  HW RX errors:           %u\n", hw_rx_errors);
+    safe_printf("  RX queue depth:         %u\n", can->getRxQueueCount());
+
+    // ---- PASS/FAIL CRITERIA ----
+    // Pass if: <1% TX error, <1% RX error, <0.1% data corruption, >80% bus utilization
+    if (tx_error_rate < 1.0 && rx_error_rate < 1.0 &&
+        data_error_rate < 0.1 && bus_utilization > 80.0 && hw_rx_overflow == 0) {
+        print_pass("Maximum throughput test PASSED - excellent saturation");
+        global_stats.record_pass();
+    } else if (data_errors > 0) {
+        safe_printf("%s[FAIL]%s Maximum throughput test FAILED - data integrity errors detected%s\n",
+                   ANSI_RED, ANSI_RESET, ANSI_RESET);
+        global_stats.record_fail();
+    } else if (hw_rx_overflow > 0) {
+        safe_printf("%s[FAIL]%s Maximum throughput test FAILED - RX overflow detected%s\n",
+                   ANSI_RED, ANSI_RESET, ANSI_RESET);
+        global_stats.record_fail();
+    } else if (bus_utilization < 50.0) {
+        safe_printf("%s[FAIL]%s Maximum throughput test FAILED - severe performance degradation (%.1f%% utilization)%s\n",
+                   ANSI_RED, ANSI_RESET, bus_utilization, ANSI_RESET);
+        global_stats.record_fail();
+    } else {
+        safe_printf("%s[WARN]%s Maximum throughput test completed - sub-optimal performance%s\n",
+                   ANSI_YELLOW, ANSI_RESET, ANSI_RESET);
+        safe_printf("  (TX error: %.2f%%, RX error: %.2f%%, Utilization: %.1f%%)%s\n",
+                   tx_error_rate, rx_error_rate, bus_utilization, ANSI_RESET);
+        global_stats.record_warning();
+    }
+}
+
+// ============================================================================
 // MAIN TEST RUNNER
 // ============================================================================
 
@@ -1864,6 +2118,7 @@ void run_full_test_suite(CAN_SPEED speed, CAN_CLOCK crystal) {
     test_dlc_variations(settle_time);
     test_rtr_frames(settle_time);
     test_stress(speed, settle_time);
+    test_maximum_throughput(speed, settle_time);
 
     // Print summary
     print_header("TEST SUMMARY");
