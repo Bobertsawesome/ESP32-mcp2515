@@ -75,7 +75,7 @@
 #define DEFAULT_CRYSTAL_FREQ MCP_16MHZ      // Default crystal frequency
 
 // Multi-speed test configuration (set to true to test multiple speeds)
-#define ENABLE_MULTI_SPEED_TEST false
+#define ENABLE_MULTI_SPEED_TEST true
 
 // Multi-speed test array (speeds to test in order)
 const CAN_SPEED MULTI_SPEED_TEST_ARRAY[] = {
@@ -267,6 +267,23 @@ const char* get_crystal_name(CAN_CLOCK crystal) {
         case MCP_20MHZ: return "20 MHz";
         default:        return "Unknown";
     }
+}
+
+// Get frame transmission time in microseconds for a given CAN speed
+// Standard CAN frame: 111 bits (47 overhead + 64 data bits for 8-byte payload)
+uint32_t get_frame_time_us(CAN_SPEED speed) {
+    uint32_t bitrate;
+    switch(speed) {
+        case CAN_10KBPS:   bitrate = 10000; break;
+        case CAN_50KBPS:   bitrate = 50000; break;
+        case CAN_125KBPS:  bitrate = 125000; break;
+        case CAN_250KBPS:  bitrate = 250000; break;
+        case CAN_500KBPS:  bitrate = 500000; break;
+        case CAN_1000KBPS: bitrate = 1000000; break;
+        default:           bitrate = 125000; break;
+    }
+    // 111 bits per standard 8-byte frame (47 overhead + 64 data)
+    return (111UL * 1000000UL) / bitrate;
 }
 
 // ============================================================================
@@ -3592,10 +3609,22 @@ void test_dual_chip_interrupt_management() {
  * This test provides insight into the real-world latency of the CAN bus
  * including transmission time, bus propagation, and ISR processing.
  *
+ * @param speed CAN bus speed (needed for timeout calculation)
  * @param settle_time_ms Additional settle time between operations
  */
-void test_dual_chip_latency(uint32_t settle_time_ms) {
+void test_dual_chip_latency(CAN_SPEED speed, uint32_t settle_time_ms) {
     print_header("DUAL-CHIP LATENCY MEASUREMENT TEST");
+
+    // Calculate speed-dependent parameters
+    uint32_t theoretical_frame_time_us = get_frame_time_us(speed);
+    uint32_t timeout_ms = (theoretical_frame_time_us / 1000) * 3 + 5;  // 3x frame time + 5ms margin
+    if (timeout_ms < 20) timeout_ms = 20;  // Minimum 20ms for fast speeds
+
+    safe_printf("  CAN Speed: %s\n", get_speed_name(speed));
+    safe_printf("  Theoretical frame time: %u µs (%.2f ms)\n",
+               theoretical_frame_time_us, theoretical_frame_time_us / 1000.0f);
+    safe_printf("  Timeout per sample: %u ms\n", timeout_ms);
+    safe_printf("\n");
 
     const uint32_t NUM_SAMPLES = 100;  // Number of latency measurements
 
@@ -3640,13 +3669,13 @@ void test_dual_chip_latency(uint32_t settle_time_ms) {
             continue;
         }
 
-        // Wait for reception with timeout (max 20ms for slow speeds)
+        // Wait for reception with speed-dependent timeout
         struct can_frame rx_frame;
         uint32_t timeout_start = millis();
         MCP2515::ERROR err_rx = MCP2515::ERROR_NOMSG;
 
-        // Poll for reception (up to 20ms timeout - increased for 10 kbps)
-        while (millis() - timeout_start < 20) {
+        // Poll for reception (timeout calculated based on CAN speed)
+        while (millis() - timeout_start < timeout_ms) {
             err_rx = can2->readMessageQueued(&rx_frame, 0);  // Non-blocking
             if (err_rx == MCP2515::ERROR_OK) {
                 // Record timestamp IMMEDIATELY after reception
@@ -3737,6 +3766,14 @@ void test_dual_chip_latency(uint32_t settle_time_ms) {
     safe_printf("  Median latency:      %.1f µs (%.3f ms)\n",
                median_latency_us, median_latency_us / 1000.0f);
     safe_printf("  Std deviation:       %.1f µs\n", std_dev_us);
+    safe_printf("\n");
+    safe_printf("  Theoretical minimum: %u µs (%.3f ms) - frame TX time\n",
+               theoretical_frame_time_us, theoretical_frame_time_us / 1000.0f);
+    if (successful_measurements > 0) {
+        float overhead_us = avg_latency_us - (float)theoretical_frame_time_us;
+        safe_printf("  Software overhead:   %.1f µs (%.3f ms)\n",
+                   overhead_us, overhead_us / 1000.0f);
+    }
     safe_printf("\n");
 
     // Pass/fail criteria: >95% successful measurements
@@ -3921,8 +3958,8 @@ void test_dual_chip_maximum_throughput(CAN_SPEED speed) {
     float throughput_kbps = throughput_bps / 1000.0;
 
     // Calculate bus utilization
-    // Standard CAN frame: 1 start + 11 ID + 6 control + 64 data + 15 CRC + 2 ACK + 7 EOF + 3 IFS = 109 bits
-    float bits_per_frame = 109.0;
+    // Standard CAN frame: 47 protocol overhead + 64 data bits = 111 bits
+    float bits_per_frame = 111.0;
     float theoretical_max_frames_per_sec = can_bitrate / bits_per_frame;
     float bus_utilization = (packets_per_second / theoretical_max_frames_per_sec) * 100.0;
 
@@ -4991,7 +5028,7 @@ void run_full_test_suite(CAN_SPEED speed, CAN_CLOCK crystal) {
 
     // Performance tests
     test_dual_chip_stress(speed, settle_time);
-    test_dual_chip_latency(settle_time);
+    test_dual_chip_latency(speed, settle_time);
     test_dual_chip_maximum_throughput(speed);
 
     // Print summary
