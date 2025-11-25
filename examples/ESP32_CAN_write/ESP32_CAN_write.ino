@@ -5,22 +5,29 @@
  * This example demonstrates CAN frame transmission on ESP32
  * using the refactored MCP2515 library with thread-safe operations.
  *
- * Hardware Setup:
- * - MCP2515 CS   -> GPIO 5
- * - MCP2515 MOSI -> GPIO 23
- * - MCP2515 MISO -> GPIO 19
- * - MCP2515 SCK  -> GPIO 18
+ * Hardware Setup (ESP32-S3):
+ * - MCP2515 CS   -> GPIO 37
+ * - MCP2515 INT  -> GPIO 36 (optional for TX-only operation)
+ * - MCP2515 MOSI -> GPIO 11
+ * - MCP2515 MISO -> GPIO 13
+ * - MCP2515 SCK  -> GPIO 12
  * - CAN_H and CAN_L connected to CAN bus with 120Ω termination
+ *
+ * Note: Pin configuration matches Chip 1 from dual-chip test suite
  */
 
-#include <mcp2515->h>
+#include <SPI.h>
+#include <mcp2515.h>
 
-// Pin definitions
-#define CAN_CS_PIN    GPIO_NUM_5
+// Pin definitions (matches Chip 1 from dual_chip_main.cpp)
+#define SPI_MOSI_PIN    11
+#define SPI_MISO_PIN    13
+#define SPI_SCK_PIN     12
+#define CAN_CS_PIN      GPIO_NUM_37
+#define CAN_INT_PIN     GPIO_NUM_36  // Optional for TX-only
 
-// Create MCP2515 instance (no interrupts needed for TX only)
-MCP2515* mcp2515 = nullptr;  // FIXED: Initialize in setup()
-// Original: MCP2515 mcp2515(CAN_CS_PIN, GPIO_NUM_NC);
+// Create MCP2515 instance
+MCP2515* mcp2515 = nullptr;
 
 // Counter for demo messages
 uint32_t message_counter = 0;
@@ -33,8 +40,15 @@ void setup() {
     Serial.println("ESP32 MCP2515 CAN Transmit Example");
     Serial.println("Thread-Safe Operations");
     Serial.println("========================================");
+    Serial.printf("SPI Pins: MOSI=%d, MISO=%d, SCK=%d\n", SPI_MOSI_PIN, SPI_MISO_PIN, SPI_SCK_PIN);
+    Serial.printf("CAN Pins: CS=%d, INT=%d\n", CAN_CS_PIN, CAN_INT_PIN);
+    Serial.println();
 
-    // Create MCP2515 object (after FreeRTOS is ready)
+    // Initialize SPI with custom pins
+    SPI.begin(SPI_SCK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN);
+    Serial.println("SPI initialized");
+
+    // Create MCP2515 object (no interrupt for TX-only operation)
     mcp2515 = new MCP2515(CAN_CS_PIN, GPIO_NUM_NC);
     if (!mcp2515) {
         Serial.println("Failed to allocate MCP2515!");
@@ -50,9 +64,9 @@ void setup() {
     }
     Serial.println("OK");
 
-    // Set bitrate (125 kbps @ 16 MHz crystal)
-    Serial.print("Setting bitrate to 125 kbps... ");
-    if (mcp2515->setBitrate(CAN_125KBPS, MCP_16MHZ) != MCP2515::ERROR_OK) {
+    // Set bitrate (250 kbps @ 16 MHz crystal)
+    Serial.print("Setting bitrate to 250 kbps... ");
+    if (mcp2515->setBitrate(CAN_250KBPS, MCP_16MHZ) != MCP2515::ERROR_OK) {
         Serial.println("FAILED!");
         while (1) delay(1000);
     }
@@ -66,7 +80,8 @@ void setup() {
     }
     Serial.println("OK");
 
-    Serial.println("\n--- Transmitting CAN frames ---");
+    Serial.println("\n--- Transmitting CAN frames at 250 kbps ---");
+    Serial.println("NOTE: Requires another CAN node on bus to ACK frames");
     Serial.println();
 }
 
@@ -106,6 +121,8 @@ void loop() {
         // Check for specific errors
         if (result == MCP2515::ERROR_ALLTXBUSY) {
             Serial.println("All TX buffers busy - bus may be disconnected");
+        } else if (result == MCP2515::ERROR_FAILTX) {
+            Serial.println("TX failed - no ACK from bus (check termination/wiring)");
         }
     }
 

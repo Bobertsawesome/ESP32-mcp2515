@@ -75,7 +75,7 @@
 #define DEFAULT_CRYSTAL_FREQ MCP_16MHZ      // Default crystal frequency
 
 // Multi-speed test configuration (set to true to test multiple speeds)
-#define ENABLE_MULTI_SPEED_TEST false
+#define ENABLE_MULTI_SPEED_TEST true
 
 // Multi-speed test array (speeds to test in order)
 const CAN_SPEED MULTI_SPEED_TEST_ARRAY[] = {
@@ -298,12 +298,6 @@ struct SpeedTestResults {
 
 SpeedTestResults multispeed_results[6];  // Store results for up to 6 speeds
 int multispeed_result_count = 0;         // Number of speeds actually tested
-
-// Last test results (populated by individual tests)
-float last_latency_avg_us = 0.0f;
-float last_throughput_kbps = 0.0f;
-float last_bus_utilization = 0.0f;
-float last_reception_rate = 100.0f;
 
 // ============================================================================
 // TEST HELPER FUNCTIONS
@@ -3654,9 +3648,6 @@ void test_dual_chip_latency(uint32_t settle_time_ms) {
     float avg_latency_us = (successful_measurements > 0) ?
                            (float)sum_latency_us / successful_measurements : 0.0f;
 
-    // Store for multi-speed comparison
-    last_latency_avg_us = avg_latency_us;
-
     // Calculate standard deviation
     float variance = 0.0f;
     if (successful_measurements > 1) {
@@ -3883,11 +3874,6 @@ void test_dual_chip_maximum_throughput(CAN_SPEED speed) {
     float theoretical_max_frames_per_sec = can_bitrate / bits_per_frame;
     float bus_utilization = (packets_per_second / theoretical_max_frames_per_sec) * 100.0;
 
-    // Store for multi-speed comparison
-    last_throughput_kbps = throughput_kbps;
-    last_bus_utilization = bus_utilization;
-    last_reception_rate = (packets_sent_ok > 0) ? (packets_received * 100.0f / packets_sent_ok) : 0.0f;
-
     // Calculate error rates
     float tx_error_rate = (packets_attempted > 0) ? (tx_errors * 100.0 / packets_attempted) : 0.0;
     float rx_error_rate = (packets_sent_ok > 0) ? ((packets_sent_ok - packets_received) * 100.0 / packets_sent_ok) : 0.0;
@@ -4021,19 +4007,6 @@ void run_full_test_suite(CAN_SPEED speed, CAN_CLOCK crystal) {
     }
 
     safe_printf("\n");
-
-    // Store results for multi-speed comparison summary
-    if (ENABLE_MULTI_SPEED_TEST && multispeed_result_count < 6) {
-        multispeed_results[multispeed_result_count].speed = speed;
-        multispeed_results[multispeed_result_count].speed_name = get_speed_name(speed);
-        multispeed_results[multispeed_result_count].tests_passed = global_stats.passed_tests;
-        multispeed_results[multispeed_result_count].tests_total = global_stats.total_tests;
-        multispeed_results[multispeed_result_count].latency_avg_us = last_latency_avg_us;
-        multispeed_results[multispeed_result_count].throughput_kbps = last_throughput_kbps;
-        multispeed_results[multispeed_result_count].bus_utilization = last_bus_utilization;
-        multispeed_results[multispeed_result_count].reception_rate = last_reception_rate;
-        multispeed_result_count++;
-    }
 }
 
 // ============================================================================
@@ -4076,9 +4049,6 @@ void wait_for_serial_start() {
     Serial.println();
     delay(500);  // Brief pause for visual clarity
 }
-
-// Forward declaration
-void print_multispeed_summary();
 
 void setup() {
     // Initialize serial
@@ -4192,9 +4162,6 @@ void setup() {
             }
         }
 
-        // Print comprehensive multi-speed comparison summary
-        print_multispeed_summary();
-
         safe_printf("\n");
         safe_printf("%s╔═══════════════════════════════════════════════════════╗%s\n", ANSI_MAGENTA, ANSI_RESET);
         safe_printf("%s║          MULTI-SPEED TESTING COMPLETE!                ║%s\n", ANSI_MAGENTA, ANSI_RESET);
@@ -4207,129 +4174,6 @@ void setup() {
 
     safe_printf("\n%s[INFO]%s Testing complete. System will idle.%s\n",
                ANSI_CYAN, ANSI_RESET, ANSI_RESET);
-}
-
-/**
- * @brief Print comprehensive multi-speed test results comparison table
- *
- * Displays all tested speeds side-by-side with key metrics for easy comparison.
- * This helps identify performance trends and optimal operating speeds.
- */
-void print_multispeed_summary() {
-    if (multispeed_result_count == 0) {
-        return;  // No results to display
-    }
-
-    safe_printf("\n\n");
-    safe_printf("%s╔═══════════════════════════════════════════════════════════════════════════════╗%s\n", ANSI_MAGENTA, ANSI_RESET);
-    safe_printf("%s║              MULTI-SPEED TEST RESULTS COMPARISON SUMMARY                     ║%s\n", ANSI_MAGENTA, ANSI_RESET);
-    safe_printf("%s╚═══════════════════════════════════════════════════════════════════════════════╝%s\n", ANSI_MAGENTA, ANSI_RESET);
-    safe_printf("\n");
-
-    // Table header
-    safe_printf("%s┌───────────┬──────────┬──────────┬────────────┬──────────────┬────────────┐%s\n", ANSI_CYAN, ANSI_RESET);
-    safe_printf("%s│   Speed   │ Pass Rate│  Latency │ Throughput │ Bus Util (%%) │  RX Rate   │%s\n", ANSI_CYAN, ANSI_RESET);
-    safe_printf("%s├───────────┼──────────┼──────────┼────────────┼──────────────┼────────────┤%s\n", ANSI_CYAN, ANSI_RESET);
-
-    // Table rows - one per speed tested
-    for (int i = 0; i < multispeed_result_count; i++) {
-        SpeedTestResults* r = &multispeed_results[i];
-        
-        // Format pass rate with color
-        const char* pass_color = (r->tests_passed == r->tests_total) ? ANSI_GREEN : ANSI_YELLOW;
-        if (r->tests_passed < r->tests_total * 0.95) pass_color = ANSI_RED;
-        
-        // Format latency
-        char latency_str[20];
-        if (r->latency_avg_us < 1000) {
-            snprintf(latency_str, sizeof(latency_str), "%.0f µs", r->latency_avg_us);
-        } else {
-            snprintf(latency_str, sizeof(latency_str), "%.2f ms", r->latency_avg_us / 1000.0f);
-        }
-        
-        // Format throughput
-        char throughput_str[15];
-        snprintf(throughput_str, sizeof(throughput_str), "%.1f kbps", r->throughput_kbps);
-        
-        // Format reception rate with color
-        const char* rx_color = (r->reception_rate >= 99.0f) ? ANSI_GREEN : 
-                              (r->reception_rate >= 95.0f) ? ANSI_YELLOW : ANSI_RED;
-        
-        // Print row
-        safe_printf("%s│%s %9s %s│%s %3d/%-3d %s│%s %8s %s│%s %10s %s│%s    %5.1f%%    %s│%s %7.1f%%  %s│%s\n",
-                   ANSI_CYAN, ANSI_RESET,
-                   r->speed_name,
-                   ANSI_CYAN, pass_color,
-                   r->tests_passed, r->tests_total,
-                   ANSI_CYAN, ANSI_RESET,
-                   latency_str,
-                   ANSI_CYAN, ANSI_RESET,
-                   throughput_str,
-                   ANSI_CYAN, ANSI_RESET,
-                   r->bus_utilization,
-                   ANSI_CYAN, rx_color,
-                   r->reception_rate,
-                   ANSI_CYAN, ANSI_RESET);
-    }
-    
-    safe_printf("%s└───────────┴──────────┴──────────┴────────────┴──────────────┴────────────┘%s\n", ANSI_CYAN, ANSI_RESET);
-    safe_printf("\n");
-
-    // Key insights and analysis
-    safe_printf("%s[ANALYSIS]%s Performance Insights:%s\n", ANSI_CYAN, ANSI_RESET, ANSI_RESET);
-    
-    // Find best and worst latency
-    int best_latency_idx = 0, worst_latency_idx = 0;
-    float best_latency = multispeed_results[0].latency_avg_us;
-    float worst_latency = multispeed_results[0].latency_avg_us;
-    
-    for (int i = 1; i < multispeed_result_count; i++) {
-        if (multispeed_results[i].latency_avg_us > 0 && multispeed_results[i].latency_avg_us < best_latency) {
-            best_latency = multispeed_results[i].latency_avg_us;
-            best_latency_idx = i;
-        }
-        if (multispeed_results[i].latency_avg_us > worst_latency) {
-            worst_latency = multispeed_results[i].latency_avg_us;
-            worst_latency_idx = i;
-        }
-    }
-    
-    if (best_latency > 0) {
-        float latency_improvement = worst_latency / best_latency;
-        safe_printf("  • Latency range: %s%.0f µs%s (%s) to %s%.2f ms%s (%s) - %s%.1fx improvement%s at higher speeds\n",
-                   ANSI_GREEN, best_latency, ANSI_RESET, multispeed_results[best_latency_idx].speed_name,
-                   ANSI_YELLOW, worst_latency / 1000.0f, ANSI_RESET, multispeed_results[worst_latency_idx].speed_name,
-                   ANSI_GREEN, latency_improvement, ANSI_RESET);
-    }
-    
-    // Calculate average bus utilization
-    float avg_bus_util = 0.0f;
-    for (int i = 0; i < multispeed_result_count; i++) {
-        avg_bus_util += multispeed_results[i].bus_utilization;
-    }
-    avg_bus_util /= multispeed_result_count;
-    
-    safe_printf("  • Average bus utilization: %s%.1f%%%s across all speeds (excellent efficiency)\n",
-               ANSI_GREEN, avg_bus_util, ANSI_RESET);
-    
-    // Check for speeds with issues
-    int speeds_with_issues = 0;
-    for (int i = 0; i < multispeed_result_count; i++) {
-        if (multispeed_results[i].reception_rate < 95.0f || 
-            multispeed_results[i].tests_passed < multispeed_results[i].tests_total) {
-            speeds_with_issues++;
-        }
-    }
-    
-    if (speeds_with_issues > 0) {
-        safe_printf("  • %s%d speed(s)%s showed reliability issues (see red/yellow indicators above)\n",
-                   ANSI_YELLOW, speeds_with_issues, ANSI_RESET);
-    } else {
-        safe_printf("  • %sAll speeds performed excellently%s with ≥95%% reception rates\n",
-                   ANSI_GREEN, ANSI_RESET);
-    }
-    
-    safe_printf("\n");
 }
 
 void loop() {

@@ -75,7 +75,7 @@
 #define DEFAULT_CRYSTAL_FREQ MCP_16MHZ      // Default crystal frequency
 
 // Multi-speed test configuration (set to true to test multiple speeds)
-#define ENABLE_MULTI_SPEED_TEST false
+#define ENABLE_MULTI_SPEED_TEST true
 
 // Multi-speed test array (speeds to test in order)
 const CAN_SPEED MULTI_SPEED_TEST_ARRAY[] = {
@@ -298,12 +298,6 @@ struct SpeedTestResults {
 
 SpeedTestResults multispeed_results[6];  // Store results for up to 6 speeds
 int multispeed_result_count = 0;         // Number of speeds actually tested
-
-// Last test results (populated by individual tests)
-float last_latency_avg_us = 0.0f;
-float last_throughput_kbps = 0.0f;
-float last_bus_utilization = 0.0f;
-float last_reception_rate = 100.0f;
 
 // ============================================================================
 // TEST HELPER FUNCTIONS
@@ -3654,9 +3648,6 @@ void test_dual_chip_latency(uint32_t settle_time_ms) {
     float avg_latency_us = (successful_measurements > 0) ?
                            (float)sum_latency_us / successful_measurements : 0.0f;
 
-    // Store for multi-speed comparison
-    last_latency_avg_us = avg_latency_us;
-
     // Calculate standard deviation
     float variance = 0.0f;
     if (successful_measurements > 1) {
@@ -3883,11 +3874,6 @@ void test_dual_chip_maximum_throughput(CAN_SPEED speed) {
     float theoretical_max_frames_per_sec = can_bitrate / bits_per_frame;
     float bus_utilization = (packets_per_second / theoretical_max_frames_per_sec) * 100.0;
 
-    // Store for multi-speed comparison
-    last_throughput_kbps = throughput_kbps;
-    last_bus_utilization = bus_utilization;
-    last_reception_rate = (packets_sent_ok > 0) ? (packets_received * 100.0f / packets_sent_ok) : 0.0f;
-
     // Calculate error rates
     float tx_error_rate = (packets_attempted > 0) ? (tx_errors * 100.0 / packets_attempted) : 0.0;
     float rx_error_rate = (packets_sent_ok > 0) ? ((packets_sent_ok - packets_received) * 100.0 / packets_sent_ok) : 0.0;
@@ -4021,19 +4007,6 @@ void run_full_test_suite(CAN_SPEED speed, CAN_CLOCK crystal) {
     }
 
     safe_printf("\n");
-
-    // Store results for multi-speed comparison summary
-    if (ENABLE_MULTI_SPEED_TEST && multispeed_result_count < 6) {
-        multispeed_results[multispeed_result_count].speed = speed;
-        multispeed_results[multispeed_result_count].speed_name = get_speed_name(speed);
-        multispeed_results[multispeed_result_count].tests_passed = global_stats.passed_tests;
-        multispeed_results[multispeed_result_count].tests_total = global_stats.total_tests;
-        multispeed_results[multispeed_result_count].latency_avg_us = last_latency_avg_us;
-        multispeed_results[multispeed_result_count].throughput_kbps = last_throughput_kbps;
-        multispeed_results[multispeed_result_count].bus_utilization = last_bus_utilization;
-        multispeed_results[multispeed_result_count].reception_rate = last_reception_rate;
-        multispeed_result_count++;
-    }
 }
 
 // ============================================================================
@@ -4076,9 +4049,6 @@ void wait_for_serial_start() {
     Serial.println();
     delay(500);  // Brief pause for visual clarity
 }
-
-// Forward declaration
-void print_multispeed_summary();
 
 void setup() {
     // Initialize serial
@@ -4192,9 +4162,6 @@ void setup() {
             }
         }
 
-        // Print comprehensive multi-speed comparison summary
-        print_multispeed_summary();
-
         safe_printf("\n");
         safe_printf("%s╔═══════════════════════════════════════════════════════╗%s\n", ANSI_MAGENTA, ANSI_RESET);
         safe_printf("%s║          MULTI-SPEED TESTING COMPLETE!                ║%s\n", ANSI_MAGENTA, ANSI_RESET);
@@ -4209,9 +4176,11 @@ void setup() {
                ANSI_CYAN, ANSI_RESET, ANSI_RESET);
 }
 
+void loop() {
+
 /**
  * @brief Print comprehensive multi-speed test results comparison table
- *
+ * 
  * Displays all tested speeds side-by-side with key metrics for easy comparison.
  * This helps identify performance trends and optimal operating speeds.
  */
