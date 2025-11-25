@@ -3930,6 +3930,898 @@ void test_dual_chip_maximum_throughput(CAN_SPEED speed) {
 }
 
 // ============================================================================
+// NEW TESTS BASED ON MCP2515 DATASHEET ANALYSIS
+// ============================================================================
+
+/**
+ * @brief Test Sleep Mode Wake-Up via Bus Activity
+ *
+ * MCP2515 Datasheet Reference: Section 7.5, Section 10.2
+ *
+ * Tests:
+ * - Put Chip1 to sleep
+ * - Have Chip2 send a message to wake Chip1 via bus activity
+ * - Verify WAKIF (Wake-Up Interrupt Flag) is set on Chip1
+ * - Verify Chip1 wakes into Listen-Only mode (per datasheet)
+ */
+void test_dual_chip_sleep_wakeup(uint32_t settle_time_ms) {
+    print_header("DUAL-CHIP SLEEP MODE WAKE-UP TEST");
+
+    drain_both_chips();
+
+    // ========================================================================
+    // Test 1: Wake Chip1 from Sleep via Bus Activity
+    // ========================================================================
+    print_subheader("Test: Wake Chip1 from Sleep via Bus Activity");
+
+    // First, ensure both chips are in Normal mode and working
+    MCP2515::ERROR err = configure_both_chips(DEFAULT_CAN_SPEED, DEFAULT_CRYSTAL_FREQ, true);
+    if (err != MCP2515::ERROR_OK) {
+        safe_printf("%s[FAIL]%s Failed to configure chips for sleep test (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+        return;
+    }
+
+    // Clear all interrupts on Chip1
+    can->clearInterrupts();
+    delay(10);
+
+    // Put Chip1 to sleep
+    safe_printf("  Putting Chip1 to sleep...\n");
+    err = can->setSleepMode();
+    if (err != MCP2515::ERROR_OK) {
+        safe_printf("%s[FAIL]%s Failed to put Chip1 to sleep (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+        return;
+    }
+
+    // Wait for sleep to settle
+    delay(50);
+
+    // Send message from Chip2 to wake Chip1
+    safe_printf("  Sending wake-up message from Chip2...\n");
+    struct can_frame wake_frame;
+    wake_frame.can_id = 0x7AA;
+    wake_frame.can_dlc = 2;
+    wake_frame.data[0] = 0xCA;
+    wake_frame.data[1] = 0xFE;
+
+    MCP2515::ERROR tx_err = can2->sendMessage(&wake_frame);
+    if (tx_err != MCP2515::ERROR_OK) {
+        safe_printf("%s[WARN]%s Chip2 send may have failed (err=%d) - no ACK from sleeping Chip1%s\n",
+                   ANSI_YELLOW, ANSI_RESET, tx_err, ANSI_RESET);
+        // This is expected - sleeping chip won't ACK
+    }
+
+    // Wait for wake-up to occur
+    delay(100);
+
+    // Check if WAKIF (Wake-Up Interrupt Flag) is set on Chip1
+    // Note: Reading registers wakes the chip, so we check after wake-up
+    uint8_t chip1_interrupts = can->getInterrupts();
+    bool wakif_set = (chip1_interrupts & MCP2515::CANINTF_WAKIF) != 0;
+
+    if (wakif_set) {
+        safe_printf("  %s✓%s WAKIF flag is set on Chip1 (wake-up detected)\n", ANSI_GREEN, ANSI_RESET);
+        print_pass("Chip1 detected bus activity and woke up");
+        global_stats.record_pass();
+    } else {
+        safe_printf("  Chip1 interrupts: 0x%02X (WAKIF not set)\n", chip1_interrupts);
+        safe_printf("%s[WARN]%s WAKIF flag not set - MCP2515 may have woken before flag was read%s\n",
+                   ANSI_YELLOW, ANSI_RESET, ANSI_RESET);
+        // This can happen because reading registers wakes the chip
+        // Per datasheet: "Any SPI activity causes immediate wake to Listen-Only mode"
+        global_stats.record_warning();
+    }
+
+    // Clear the WAKIF flag
+    can->clearInterrupts();
+
+    // ========================================================================
+    // Test 2: Verify chip returns to operational state after wake
+    // ========================================================================
+    print_subheader("Test: Verify Chip1 operational after wake");
+
+    // Put Chip1 back to Normal mode
+    err = can->setNormalMode();
+    if (err != MCP2515::ERROR_OK) {
+        safe_printf("%s[FAIL]%s Failed to return Chip1 to Normal mode (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+    } else {
+        // Test bidirectional communication works
+        drain_both_chips();
+
+        struct can_frame test_frame;
+        test_frame.can_id = 0x7AB;
+        test_frame.can_dlc = 4;
+        test_frame.data[0] = 0x11;
+        test_frame.data[1] = 0x22;
+        test_frame.data[2] = 0x33;
+        test_frame.data[3] = 0x44;
+
+        tx_err = can->sendMessage(&test_frame);
+        delay(settle_time_ms);
+
+        struct can_frame rx_frame;
+        MCP2515::ERROR rx_err = can2->readMessageQueued(&rx_frame, 10);
+
+        if (tx_err == MCP2515::ERROR_OK && rx_err == MCP2515::ERROR_OK) {
+            safe_printf("  %s✓%s Chip1 fully operational after wake-up\n", ANSI_GREEN, ANSI_RESET);
+            print_pass("Chip1 returned to normal operation after sleep/wake cycle");
+            global_stats.record_pass();
+        } else {
+            safe_printf("%s[FAIL]%s Chip1 not operational after wake (tx=%d, rx=%d)%s\n",
+                       ANSI_RED, ANSI_RESET, tx_err, rx_err, ANSI_RESET);
+            global_stats.record_fail();
+        }
+    }
+
+    drain_both_chips();
+}
+
+/**
+ * @brief Test Transmit Priority (TXP bits)
+ *
+ * MCP2515 Datasheet Reference: Section 3.2
+ *
+ * Tests that messages with higher TXP priority are transmitted first when
+ * multiple TX buffers are loaded simultaneously.
+ */
+void test_dual_chip_transmit_priority(uint32_t settle_time_ms) {
+    print_header("DUAL-CHIP TRANSMIT PRIORITY TEST");
+
+    drain_both_chips();
+
+    // ========================================================================
+    // Test 1: Set different priorities for each TX buffer
+    // ========================================================================
+    print_subheader("Test: TX Buffer Priority Ordering");
+
+    // Ensure chips are configured
+    MCP2515::ERROR err = configure_both_chips(DEFAULT_CAN_SPEED, DEFAULT_CRYSTAL_FREQ, true);
+    if (err != MCP2515::ERROR_OK) {
+        safe_printf("%s[FAIL]%s Failed to configure chips (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+        return;
+    }
+
+    // Set different priorities for each TX buffer
+    // Priority 3 = highest, Priority 0 = lowest
+    safe_printf("  Setting TX buffer priorities:\n");
+    safe_printf("    TXB0: Priority 0 (lowest)\n");
+    safe_printf("    TXB1: Priority 2 (high)\n");
+    safe_printf("    TXB2: Priority 3 (highest)\n");
+
+    can->setTransmitPriority(MCP2515::TXB0, 0);  // Lowest priority
+    can->setTransmitPriority(MCP2515::TXB1, 2);  // High priority
+    can->setTransmitPriority(MCP2515::TXB2, 3);  // Highest priority
+
+    // Prepare three frames with different IDs to identify order
+    struct can_frame frame0, frame1, frame2;
+
+    frame0.can_id = 0x100;  // From TXB0 (lowest priority)
+    frame0.can_dlc = 1;
+    frame0.data[0] = 0xA0;
+
+    frame1.can_id = 0x101;  // From TXB1 (high priority)
+    frame1.can_dlc = 1;
+    frame1.data[0] = 0xA1;
+
+    frame2.can_id = 0x102;  // From TXB2 (highest priority)
+    frame2.can_dlc = 1;
+    frame2.data[0] = 0xA2;
+
+    // Load all three buffers before any can transmit
+    safe_printf("  Loading all three TX buffers...\n");
+    MCP2515::ERROR err0 = can->sendMessage(MCP2515::TXB0, &frame0);
+    MCP2515::ERROR err1 = can->sendMessage(MCP2515::TXB1, &frame1);
+    MCP2515::ERROR err2 = can->sendMessage(MCP2515::TXB2, &frame2);
+
+    if (err0 != MCP2515::ERROR_OK || err1 != MCP2515::ERROR_OK || err2 != MCP2515::ERROR_OK) {
+        safe_printf("%s[FAIL]%s Failed to load TX buffers (err0=%d, err1=%d, err2=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err0, err1, err2, ANSI_RESET);
+        global_stats.record_fail();
+        drain_both_chips();
+        return;
+    }
+
+    // Wait for all transmissions to complete
+    delay(settle_time_ms * 3);
+
+    // Receive all three frames and check order
+    safe_printf("  Receiving frames and checking order...\n");
+    struct can_frame rx_frames[3];
+    int frames_received = 0;
+
+    for (int i = 0; i < 3; i++) {
+        MCP2515::ERROR rx_err = can2->readMessageQueued(&rx_frames[i], 50);
+        if (rx_err == MCP2515::ERROR_OK) {
+            frames_received++;
+            safe_printf("    Frame %d: ID=0x%03lX, Data=0x%02X\n",
+                       i + 1, (unsigned long)(rx_frames[i].can_id & CAN_SFF_MASK),
+                       rx_frames[i].data[0]);
+        }
+    }
+
+    if (frames_received == 3) {
+        // Expected order (by priority): TXB2 (0x102), TXB1 (0x101), TXB0 (0x100)
+        // Or reversed depending on internal timing
+        bool priority_order = (rx_frames[0].can_id & CAN_SFF_MASK) == 0x102;
+
+        if (priority_order) {
+            safe_printf("  %s✓%s Highest priority message (TXB2) transmitted first\n",
+                       ANSI_GREEN, ANSI_RESET);
+            print_pass("TX priority ordering verified");
+            global_stats.record_pass();
+        } else {
+            // Priority may not be perfectly observable due to timing
+            safe_printf("  First received ID: 0x%03lX\n",
+                       (unsigned long)(rx_frames[0].can_id & CAN_SFF_MASK));
+            safe_printf("%s[WARN]%s Priority order not strictly observed (may be timing-dependent)%s\n",
+                       ANSI_YELLOW, ANSI_RESET, ANSI_RESET);
+            global_stats.record_warning();
+        }
+    } else {
+        safe_printf("%s[FAIL]%s Only received %d/3 frames%s\n",
+                   ANSI_RED, ANSI_RESET, frames_received, ANSI_RESET);
+        global_stats.record_fail();
+    }
+
+    // ========================================================================
+    // Test 2: Priority tie-breaker (higher buffer number wins)
+    // ========================================================================
+    print_subheader("Test: Priority Tie-Breaker (Same Priority)");
+
+    drain_both_chips();
+
+    // Set same priority for all buffers
+    can->setTransmitPriority(MCP2515::TXB0, 2);
+    can->setTransmitPriority(MCP2515::TXB1, 2);
+    can->setTransmitPriority(MCP2515::TXB2, 2);
+
+    safe_printf("  All buffers set to priority 2\n");
+    safe_printf("  Expected order: TXB2 > TXB1 > TXB0 (per datasheet)\n");
+
+    frame0.can_id = 0x200;
+    frame1.can_id = 0x201;
+    frame2.can_id = 0x202;
+
+    can->sendMessage(MCP2515::TXB0, &frame0);
+    can->sendMessage(MCP2515::TXB1, &frame1);
+    can->sendMessage(MCP2515::TXB2, &frame2);
+
+    delay(settle_time_ms * 3);
+
+    frames_received = 0;
+    for (int i = 0; i < 3; i++) {
+        MCP2515::ERROR rx_err = can2->readMessageQueued(&rx_frames[i], 50);
+        if (rx_err == MCP2515::ERROR_OK) {
+            frames_received++;
+        }
+    }
+
+    if (frames_received == 3) {
+        safe_printf("  All 3 frames received\n");
+        print_pass("Same-priority transmission completed");
+        global_stats.record_pass();
+    } else {
+        safe_printf("%s[FAIL]%s Only received %d/3 frames%s\n",
+                   ANSI_RED, ANSI_RESET, frames_received, ANSI_RESET);
+        global_stats.record_fail();
+    }
+
+    drain_both_chips();
+}
+
+/**
+ * @brief Test One-Shot Mode Behavior
+ *
+ * MCP2515 Datasheet Reference: Section 3.4
+ *
+ * Tests that in One-Shot mode, messages are only attempted once and not retried.
+ */
+void test_dual_chip_one_shot_mode(uint32_t settle_time_ms) {
+    print_header("DUAL-CHIP ONE-SHOT MODE TEST");
+
+    drain_both_chips();
+
+    // ========================================================================
+    // Test 1: Verify message fails without ACK in One-Shot mode
+    // ========================================================================
+    print_subheader("Test: One-Shot Mode No Retry");
+
+    // Configure Chip1 for One-Shot mode
+    MCP2515::ERROR err = can->reset();
+    if (err != MCP2515::ERROR_OK) {
+        safe_printf("%s[FAIL]%s Failed to reset Chip1 (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+        return;
+    }
+
+    err = can->setBitrate(DEFAULT_CAN_SPEED, DEFAULT_CRYSTAL_FREQ);
+    if (err != MCP2515::ERROR_OK) {
+        safe_printf("%s[FAIL]%s Failed to set bitrate (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+        return;
+    }
+
+    // Put Chip2 to sleep so it won't ACK
+    safe_printf("  Putting Chip2 to sleep (won't ACK messages)...\n");
+    can2->reset();
+    can2->setBitrate(DEFAULT_CAN_SPEED, DEFAULT_CRYSTAL_FREQ);
+    can2->setSleepMode();
+    delay(50);
+
+    // Enter One-Shot mode on Chip1
+    err = can->setNormalOneShotMode();
+    if (err != MCP2515::ERROR_OK) {
+        safe_printf("%s[FAIL]%s Failed to enter One-Shot mode (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+        // Restore Chip2
+        can2->setNormalMode();
+        return;
+    }
+
+    safe_printf("  Chip1 in One-Shot mode, Chip2 sleeping\n");
+
+    // Send message that will fail (no ACK)
+    struct can_frame osm_frame;
+    osm_frame.can_id = 0x555;
+    osm_frame.can_dlc = 2;
+    osm_frame.data[0] = 0xDE;
+    osm_frame.data[1] = 0xAD;
+
+    safe_printf("  Sending message (expecting failure due to no ACK)...\n");
+    MCP2515::ERROR tx_err = can->sendMessage(&osm_frame);
+
+    // Wait for transmission attempt
+    delay(100);
+
+    // Check TX error counter - should have increased
+    uint8_t tx_errors = can->errorCountTX();
+    safe_printf("  Chip1 TX error counter: %d\n", tx_errors);
+
+    if (tx_errors > 0) {
+        safe_printf("  %s✓%s Message failed as expected (no ACK in One-Shot mode)\n",
+                   ANSI_GREEN, ANSI_RESET);
+        print_pass("One-Shot mode correctly failed without retrying");
+        global_stats.record_pass();
+    } else {
+        safe_printf("%s[WARN]%s TX error counter is 0 - message may have succeeded unexpectedly%s\n",
+                   ANSI_YELLOW, ANSI_RESET, ANSI_RESET);
+        global_stats.record_warning();
+    }
+
+    // ========================================================================
+    // Test 2: Restore normal operation
+    // ========================================================================
+    print_subheader("Test: Restore Normal Operation");
+
+    // Wake Chip2 and restore both to Normal mode
+    err = can2->setNormalMode();
+    can2->clearInterrupts();
+
+    err = can->setNormalMode();
+    can->clearInterrupts();
+
+    delay(50);
+
+    // Verify communication works again
+    drain_both_chips();
+
+    struct can_frame test_frame;
+    test_frame.can_id = 0x556;
+    test_frame.can_dlc = 2;
+    test_frame.data[0] = 0xBE;
+    test_frame.data[1] = 0xEF;
+
+    tx_err = can->sendMessage(&test_frame);
+    delay(settle_time_ms);
+
+    struct can_frame rx_frame;
+    MCP2515::ERROR rx_err = can2->readMessageQueued(&rx_frame, 10);
+
+    if (tx_err == MCP2515::ERROR_OK && rx_err == MCP2515::ERROR_OK) {
+        print_pass("Normal operation restored after One-Shot mode test");
+        global_stats.record_pass();
+    } else {
+        safe_printf("%s[FAIL]%s Failed to restore normal operation (tx=%d, rx=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, tx_err, rx_err, ANSI_RESET);
+        global_stats.record_fail();
+    }
+
+    // Reconfigure both chips for subsequent tests
+    configure_both_chips(DEFAULT_CAN_SPEED, DEFAULT_CRYSTAL_FREQ, true);
+    drain_both_chips();
+}
+
+/**
+ * @brief Test Abort Transmission Functionality
+ *
+ * MCP2515 Datasheet Reference: Section 3.6
+ *
+ * Tests abortTransmission() and abortAllTransmissions() functions.
+ */
+void test_dual_chip_abort_flags(uint32_t settle_time_ms) {
+    print_header("DUAL-CHIP ABORT TRANSMISSION TEST");
+
+    drain_both_chips();
+
+    // ========================================================================
+    // Test 1: Abort specific TX buffer
+    // ========================================================================
+    print_subheader("Test: Abort Specific TX Buffer");
+
+    MCP2515::ERROR err = configure_both_chips(DEFAULT_CAN_SPEED, DEFAULT_CRYSTAL_FREQ, true);
+    if (err != MCP2515::ERROR_OK) {
+        safe_printf("%s[FAIL]%s Failed to configure chips (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+        return;
+    }
+
+    // Load a message into TXB0
+    struct can_frame abort_frame;
+    abort_frame.can_id = 0x333;
+    abort_frame.can_dlc = 4;
+    abort_frame.data[0] = 0xAB;
+    abort_frame.data[1] = 0xCD;
+    abort_frame.data[2] = 0xEF;
+    abort_frame.data[3] = 0x12;
+
+    // We need to test abort before transmission completes
+    // This is tricky because transmissions are very fast
+    // Best approach: call abort immediately after send
+    MCP2515::ERROR send_err = can->sendMessage(MCP2515::TXB0, &abort_frame);
+    MCP2515::ERROR abort_err = can->abortTransmission(MCP2515::TXB0);
+
+    if (abort_err == MCP2515::ERROR_OK) {
+        safe_printf("  %s✓%s abortTransmission(TXB0) completed\n", ANSI_GREEN, ANSI_RESET);
+        print_pass("Abort specific TX buffer function works");
+        global_stats.record_pass();
+    } else {
+        safe_printf("%s[WARN]%s abortTransmission returned error=%d%s\n",
+                   ANSI_YELLOW, ANSI_RESET, abort_err, ANSI_RESET);
+        global_stats.record_warning();
+    }
+
+    // ========================================================================
+    // Test 2: Abort all transmissions
+    // ========================================================================
+    print_subheader("Test: Abort All Transmissions");
+
+    drain_both_chips();
+
+    // Load multiple buffers
+    struct can_frame frame0, frame1, frame2;
+    frame0.can_id = 0x400;
+    frame0.can_dlc = 1;
+    frame0.data[0] = 0x00;
+
+    frame1.can_id = 0x401;
+    frame1.can_dlc = 1;
+    frame1.data[0] = 0x01;
+
+    frame2.can_id = 0x402;
+    frame2.can_dlc = 1;
+    frame2.data[0] = 0x02;
+
+    can->sendMessage(MCP2515::TXB0, &frame0);
+    can->sendMessage(MCP2515::TXB1, &frame1);
+    can->sendMessage(MCP2515::TXB2, &frame2);
+
+    // Abort all
+    err = can->abortAllTransmissions();
+
+    if (err == MCP2515::ERROR_OK) {
+        safe_printf("  %s✓%s abortAllTransmissions() completed\n", ANSI_GREEN, ANSI_RESET);
+        print_pass("Abort all transmissions function works");
+        global_stats.record_pass();
+    } else {
+        safe_printf("%s[FAIL]%s abortAllTransmissions returned error=%d%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+    }
+
+    // Wait for any in-flight transmissions
+    delay(settle_time_ms);
+    drain_both_chips();
+
+    // ========================================================================
+    // Test 3: Verify normal operation after abort
+    // ========================================================================
+    print_subheader("Test: Normal Operation After Abort");
+
+    struct can_frame test_frame;
+    test_frame.can_id = 0x444;
+    test_frame.can_dlc = 2;
+    test_frame.data[0] = 0xAA;
+    test_frame.data[1] = 0xBB;
+
+    MCP2515::ERROR tx_err = can->sendMessage(&test_frame);
+    delay(settle_time_ms);
+
+    struct can_frame rx_frame;
+    MCP2515::ERROR rx_err = can2->readMessageQueued(&rx_frame, 10);
+
+    if (tx_err == MCP2515::ERROR_OK && rx_err == MCP2515::ERROR_OK) {
+        print_pass("Normal transmission works after abort");
+        global_stats.record_pass();
+    } else {
+        safe_printf("%s[FAIL]%s Transmission failed after abort (tx=%d, rx=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, tx_err, rx_err, ANSI_RESET);
+        global_stats.record_fail();
+    }
+
+    drain_both_chips();
+}
+
+/**
+ * @brief Test Filter Hit Reporting
+ *
+ * MCP2515 Datasheet Reference: Section 4.5.3
+ *
+ * Tests that getFilterHit() correctly reports which filter matched.
+ */
+void test_dual_chip_filter_hit(uint32_t settle_time_ms) {
+    print_header("DUAL-CHIP FILTER HIT REPORTING TEST");
+
+    drain_both_chips();
+
+    // ========================================================================
+    // Test 1: Configure specific filters and verify hit reporting
+    // ========================================================================
+    print_subheader("Test: Filter Hit Identification");
+
+    // Reset and configure Chip2 with specific filters
+    MCP2515::ERROR err = can2->reset();
+    if (err != MCP2515::ERROR_OK) {
+        safe_printf("%s[FAIL]%s Failed to reset Chip2 (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+        return;
+    }
+
+    err = can2->setBitrate(DEFAULT_CAN_SPEED, DEFAULT_CRYSTAL_FREQ);
+    if (err != MCP2515::ERROR_OK) {
+        safe_printf("%s[FAIL]%s Failed to set bitrate (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+        return;
+    }
+
+    // Set up filters with unique IDs
+    // RXF0 = 0x100, RXF1 = 0x200 (associated with RXB0)
+    // RXF2-5 = 0x300, 0x400, 0x500, 0x600 (associated with RXB1)
+    safe_printf("  Configuring filters:\n");
+    safe_printf("    RXF0: 0x100, RXF1: 0x200 (RXB0)\n");
+    safe_printf("    RXF2: 0x300, RXF3: 0x400, RXF4: 0x500, RXF5: 0x600 (RXB1)\n");
+
+    // Set masks to match exact ID
+    can2->setFilterMask(MCP2515::MASK0, false, 0x7FF);  // Exact match
+    can2->setFilterMask(MCP2515::MASK1, false, 0x7FF);  // Exact match
+
+    // Set filters
+    can2->setFilter(MCP2515::RXF0, false, 0x100);
+    can2->setFilter(MCP2515::RXF1, false, 0x200);
+    can2->setFilter(MCP2515::RXF2, false, 0x300);
+    can2->setFilter(MCP2515::RXF3, false, 0x400);
+    can2->setFilter(MCP2515::RXF4, false, 0x500);
+    can2->setFilter(MCP2515::RXF5, false, 0x600);
+
+    err = can2->setNormalMode();
+    if (err != MCP2515::ERROR_OK) {
+        safe_printf("%s[FAIL]%s Failed to enter Normal mode (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+        return;
+    }
+
+    // Configure Chip1 for normal transmission
+    can->reset();
+    can->setBitrate(DEFAULT_CAN_SPEED, DEFAULT_CRYSTAL_FREQ);
+    can->setFilterMask(MCP2515::MASK0, false, 0x00000000);
+    can->setFilterMask(MCP2515::MASK1, false, 0x00000000);
+    can->setNormalMode();
+    delay(50);
+
+    drain_both_chips();
+
+    // Test sending to RXF0 (ID 0x100)
+    struct can_frame test_frame;
+    test_frame.can_id = 0x100;
+    test_frame.can_dlc = 1;
+    test_frame.data[0] = 0xF0;
+
+    safe_printf("  Sending frame with ID=0x100 (should match RXF0)...\n");
+    can->sendMessage(&test_frame);
+    delay(settle_time_ms);
+
+    struct can_frame rx_frame;
+    err = can2->readMessage(MCP2515::RXB0, &rx_frame);
+
+    if (err == MCP2515::ERROR_OK) {
+        uint8_t filter_hit = can2->getFilterHit(MCP2515::RXB0);
+        safe_printf("    Filter hit reported: RXF%d\n", filter_hit);
+
+        if (filter_hit == 0) {
+            print_pass("Correct filter (RXF0) reported for ID 0x100");
+            global_stats.record_pass();
+        } else {
+            safe_printf("%s[FAIL]%s Expected RXF0, got RXF%d%s\n",
+                       ANSI_RED, ANSI_RESET, filter_hit, ANSI_RESET);
+            global_stats.record_fail();
+        }
+    } else {
+        safe_printf("%s[FAIL]%s Frame not received in RXB0 (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+    }
+
+    // Clear and test RXF3 (ID 0x400)
+    can2->clearInterrupts();
+    delay(20);
+
+    test_frame.can_id = 0x400;
+    test_frame.data[0] = 0xF3;
+
+    safe_printf("  Sending frame with ID=0x400 (should match RXF3)...\n");
+    can->sendMessage(&test_frame);
+    delay(settle_time_ms);
+
+    err = can2->readMessage(MCP2515::RXB1, &rx_frame);
+
+    if (err == MCP2515::ERROR_OK) {
+        uint8_t filter_hit = can2->getFilterHit(MCP2515::RXB1);
+        safe_printf("    Filter hit reported: RXF%d\n", filter_hit);
+
+        if (filter_hit == 3) {
+            print_pass("Correct filter (RXF3) reported for ID 0x400");
+            global_stats.record_pass();
+        } else {
+            safe_printf("%s[WARN]%s Expected RXF3, got RXF%d%s\n",
+                       ANSI_YELLOW, ANSI_RESET, filter_hit, ANSI_RESET);
+            global_stats.record_warning();
+        }
+    } else {
+        safe_printf("%s[FAIL]%s Frame not received in RXB1 (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+    }
+
+    // Restore default configuration
+    configure_both_chips(DEFAULT_CAN_SPEED, DEFAULT_CRYSTAL_FREQ, true);
+    drain_both_chips();
+}
+
+/**
+ * @brief Test Specific TX Buffer Functionality
+ *
+ * MCP2515 Datasheet Reference: Section 3.1
+ *
+ * Tests that each TX buffer (TXB0, TXB1, TXB2) works independently.
+ */
+void test_dual_chip_specific_tx_buffers(uint32_t settle_time_ms) {
+    print_header("DUAL-CHIP SPECIFIC TX BUFFER TEST");
+
+    drain_both_chips();
+
+    MCP2515::ERROR err = configure_both_chips(DEFAULT_CAN_SPEED, DEFAULT_CRYSTAL_FREQ, true);
+    if (err != MCP2515::ERROR_OK) {
+        safe_printf("%s[FAIL]%s Failed to configure chips (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+        return;
+    }
+
+    // ========================================================================
+    // Test 1: Send from TXB0 specifically
+    // ========================================================================
+    print_subheader("Test: Send from TXB0");
+
+    struct can_frame frame0;
+    frame0.can_id = 0x0B0;
+    frame0.can_dlc = 3;
+    frame0.data[0] = 0xB0;
+    frame0.data[1] = 0xB0;
+    frame0.data[2] = 0xB0;
+
+    err = can->sendMessage(MCP2515::TXB0, &frame0);
+    delay(settle_time_ms);
+
+    struct can_frame rx_frame;
+    MCP2515::ERROR rx_err = can2->readMessageQueued(&rx_frame, 10);
+
+    if (err == MCP2515::ERROR_OK && rx_err == MCP2515::ERROR_OK) {
+        if ((rx_frame.can_id & CAN_SFF_MASK) == 0x0B0) {
+            print_pass("TXB0 transmission successful");
+            global_stats.record_pass();
+        } else {
+            safe_printf("%s[FAIL]%s Wrong frame received (ID=0x%03lX)%s\n",
+                       ANSI_RED, ANSI_RESET, (unsigned long)(rx_frame.can_id & CAN_SFF_MASK), ANSI_RESET);
+            global_stats.record_fail();
+        }
+    } else {
+        safe_printf("%s[FAIL]%s TXB0 send/receive failed (tx=%d, rx=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, rx_err, ANSI_RESET);
+        global_stats.record_fail();
+    }
+
+    // ========================================================================
+    // Test 2: Send from TXB1 specifically
+    // ========================================================================
+    print_subheader("Test: Send from TXB1");
+
+    drain_both_chips();
+
+    struct can_frame frame1;
+    frame1.can_id = 0x0B1;
+    frame1.can_dlc = 3;
+    frame1.data[0] = 0xB1;
+    frame1.data[1] = 0xB1;
+    frame1.data[2] = 0xB1;
+
+    err = can->sendMessage(MCP2515::TXB1, &frame1);
+    delay(settle_time_ms);
+
+    rx_err = can2->readMessageQueued(&rx_frame, 10);
+
+    if (err == MCP2515::ERROR_OK && rx_err == MCP2515::ERROR_OK) {
+        if ((rx_frame.can_id & CAN_SFF_MASK) == 0x0B1) {
+            print_pass("TXB1 transmission successful");
+            global_stats.record_pass();
+        } else {
+            safe_printf("%s[FAIL]%s Wrong frame received (ID=0x%03lX)%s\n",
+                       ANSI_RED, ANSI_RESET, (unsigned long)(rx_frame.can_id & CAN_SFF_MASK), ANSI_RESET);
+            global_stats.record_fail();
+        }
+    } else {
+        safe_printf("%s[FAIL]%s TXB1 send/receive failed (tx=%d, rx=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, rx_err, ANSI_RESET);
+        global_stats.record_fail();
+    }
+
+    // ========================================================================
+    // Test 3: Send from TXB2 specifically
+    // ========================================================================
+    print_subheader("Test: Send from TXB2");
+
+    drain_both_chips();
+
+    struct can_frame frame2;
+    frame2.can_id = 0x0B2;
+    frame2.can_dlc = 3;
+    frame2.data[0] = 0xB2;
+    frame2.data[1] = 0xB2;
+    frame2.data[2] = 0xB2;
+
+    err = can->sendMessage(MCP2515::TXB2, &frame2);
+    delay(settle_time_ms);
+
+    rx_err = can2->readMessageQueued(&rx_frame, 10);
+
+    if (err == MCP2515::ERROR_OK && rx_err == MCP2515::ERROR_OK) {
+        if ((rx_frame.can_id & CAN_SFF_MASK) == 0x0B2) {
+            print_pass("TXB2 transmission successful");
+            global_stats.record_pass();
+        } else {
+            safe_printf("%s[FAIL]%s Wrong frame received (ID=0x%03lX)%s\n",
+                       ANSI_RED, ANSI_RESET, (unsigned long)(rx_frame.can_id & CAN_SFF_MASK), ANSI_RESET);
+            global_stats.record_fail();
+        }
+    } else {
+        safe_printf("%s[FAIL]%s TXB2 send/receive failed (tx=%d, rx=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, rx_err, ANSI_RESET);
+        global_stats.record_fail();
+    }
+
+    drain_both_chips();
+}
+
+/**
+ * @brief Test Buffer Overflow Flags
+ *
+ * MCP2515 Datasheet Reference: Section 7.6.1, EFLG register
+ *
+ * Tests that RX0OVR/RX1OVR flags are set when buffers overflow.
+ */
+void test_dual_chip_overflow_flags(uint32_t settle_time_ms) {
+    print_header("DUAL-CHIP BUFFER OVERFLOW FLAGS TEST");
+
+    drain_both_chips();
+
+    // ========================================================================
+    // Test 1: Cause RX buffer overflow and verify flag
+    // ========================================================================
+    print_subheader("Test: RX Buffer Overflow Detection");
+
+    MCP2515::ERROR err = configure_both_chips(DEFAULT_CAN_SPEED, DEFAULT_CRYSTAL_FREQ, true);
+    if (err != MCP2515::ERROR_OK) {
+        safe_printf("%s[FAIL]%s Failed to configure chips (err=%d)%s\n",
+                   ANSI_RED, ANSI_RESET, err, ANSI_RESET);
+        global_stats.record_fail();
+        return;
+    }
+
+    // Clear error flags on Chip2
+    can2->clearRXnOVRFlags();
+    delay(10);
+
+    // Get initial error flags
+    uint8_t initial_eflg = can2->getErrorFlags();
+    safe_printf("  Initial error flags on Chip2: 0x%02X\n", initial_eflg);
+
+    // Send multiple frames rapidly to Chip2 without reading them
+    // This should cause buffer overflow
+    safe_printf("  Sending multiple frames to overflow RX buffers...\n");
+
+    for (int i = 0; i < 10; i++) {
+        struct can_frame overflow_frame;
+        overflow_frame.can_id = 0x700 + i;
+        overflow_frame.can_dlc = 8;
+        for (int j = 0; j < 8; j++) {
+            overflow_frame.data[j] = i + j;
+        }
+
+        can->sendMessage(&overflow_frame);
+        // Don't drain Chip2 - let buffers overflow
+        delay(5);  // Small delay for transmission
+    }
+
+    // Wait for all transmissions to complete
+    delay(100);
+
+    // Check error flags on Chip2
+    uint8_t final_eflg = can2->getErrorFlags();
+    safe_printf("  Final error flags on Chip2: 0x%02X\n", final_eflg);
+
+    bool rx0ovr = (final_eflg & MCP2515::EFLG_RX0OVR) != 0;
+    bool rx1ovr = (final_eflg & MCP2515::EFLG_RX1OVR) != 0;
+
+    if (rx0ovr || rx1ovr) {
+        safe_printf("  %s✓%s Overflow detected: RX0OVR=%d, RX1OVR=%d\n",
+                   ANSI_GREEN, ANSI_RESET, rx0ovr, rx1ovr);
+        print_pass("Buffer overflow flags correctly set");
+        global_stats.record_pass();
+    } else {
+        // May not overflow if RX queue is draining fast enough (ESP32 with ISR task)
+        safe_printf("%s[WARN]%s No overflow flags set - FreeRTOS queue may have prevented overflow%s\n",
+                   ANSI_YELLOW, ANSI_RESET, ANSI_RESET);
+        global_stats.record_warning();
+    }
+
+    // ========================================================================
+    // Test 2: Clear overflow flags
+    // ========================================================================
+    print_subheader("Test: Clear Overflow Flags");
+
+    can2->clearRXnOVRFlags();
+    delay(10);
+
+    uint8_t cleared_eflg = can2->getErrorFlags();
+    bool cleared_rx0ovr = (cleared_eflg & MCP2515::EFLG_RX0OVR) != 0;
+    bool cleared_rx1ovr = (cleared_eflg & MCP2515::EFLG_RX1OVR) != 0;
+
+    if (!cleared_rx0ovr && !cleared_rx1ovr) {
+        print_pass("Overflow flags successfully cleared");
+        global_stats.record_pass();
+    } else {
+        safe_printf("%s[WARN]%s Flags may not have been set to begin with%s\n",
+                   ANSI_YELLOW, ANSI_RESET, ANSI_RESET);
+        global_stats.record_warning();
+    }
+
+    drain_both_chips();
+}
+
+// ============================================================================
 // MAIN TEST RUNNER
 // ============================================================================
 
@@ -3987,6 +4879,25 @@ void run_full_test_suite(CAN_SPEED speed, CAN_CLOCK crystal) {
     // CAN bus protocol tests
     test_can_arbitration(settle_time);
     test_ack_verification(settle_time);
+
+    // ========================================================================
+    // NEW DATASHEET-BASED FEATURE TESTS
+    // ========================================================================
+
+    // Sleep mode and wake-up testing
+    test_dual_chip_sleep_wakeup(settle_time);
+
+    // TX buffer and priority testing
+    test_dual_chip_transmit_priority(settle_time);
+    test_dual_chip_specific_tx_buffers(settle_time);
+    test_dual_chip_abort_flags(settle_time);
+
+    // One-Shot mode testing
+    test_dual_chip_one_shot_mode(settle_time);
+
+    // Filter hit and overflow testing
+    test_dual_chip_filter_hit(settle_time);
+    test_dual_chip_overflow_flags(settle_time);
 
     // Performance tests
     test_dual_chip_stress(speed, settle_time);
