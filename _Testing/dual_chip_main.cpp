@@ -1080,14 +1080,23 @@ void test_reception(uint32_t settle_time_ms) {
                            poll_rx.can_id & CAN_SFF_MASK, poll_rx.can_dlc);
                 global_stats.record_pass();
 
-                // Verify data
-                if (poll_rx.can_id == 0x555 && poll_rx.can_dlc == 4 &&
-                    poll_rx.data[0] == 0xAA && poll_rx.data[1] == 0xBB) {
-                    safe_printf("%s[INFO]%s Polling mode: Data verified correct\n",
-                               ANSI_CYAN, ANSI_RESET);
+                // Verify ALL 4 data bytes (not just 2)
+                bool id_ok = (poll_rx.can_id == 0x555);
+                bool dlc_ok = (poll_rx.can_dlc == 4);
+                bool data_ok = (poll_rx.data[0] == 0xAA) &&
+                              (poll_rx.data[1] == 0xBB) &&
+                              (poll_rx.data[2] == 0xCC) &&
+                              (poll_rx.data[3] == 0xDD);
+
+                if (id_ok && dlc_ok && data_ok) {
+                    print_pass("Polling mode: All 4 data bytes verified");
+                    global_stats.record_pass();
                 } else {
-                    safe_printf("%s[WARN]%s Polling mode: Data mismatch\n",
-                               ANSI_YELLOW, ANSI_RESET);
+                    safe_printf("%s[FAIL]%s Polling data mismatch: ID=%d DLC=%d data=[0x%02X,0x%02X,0x%02X,0x%02X]%s\n",
+                               ANSI_RED, ANSI_RESET, id_ok, dlc_ok,
+                               poll_rx.data[0], poll_rx.data[1], poll_rx.data[2], poll_rx.data[3], ANSI_RESET);
+                    safe_printf("  Expected: ID=0x555 DLC=4 data=[0xAA,0xBB,0xCC,0xDD]\n");
+                    global_stats.record_fail();
                 }
             } else {
                 safe_printf("%s[FAIL]%s Polling mode: No frame received (send_err=%d, read_err=%d)\n",
@@ -1838,6 +1847,16 @@ void test_rtr_frames(uint32_t settle_time_ms) {
                 safe_printf("%s[FAIL]%s RTR ID mismatch%s\n", ANSI_RED, ANSI_RESET, ANSI_RESET);
                 global_stats.record_fail();
             }
+
+            // Verify DLC is 0 for RTR frame (RTR frames have no data)
+            if (rx_frame.can_dlc == 0) {
+                print_pass("RTR frame DLC verified (0)");
+                global_stats.record_pass();
+            } else {
+                safe_printf("%s[FAIL]%s RTR frame DLC should be 0, got %d%s\n",
+                           ANSI_RED, ANSI_RESET, rx_frame.can_dlc, ANSI_RESET);
+                global_stats.record_fail();
+            }
         } else {
             safe_printf("%s[FAIL]%s RTR flag not set in received frame (err=%d)\n", ANSI_RED, ANSI_RESET, err);
             global_stats.record_fail();
@@ -1860,14 +1879,15 @@ void test_rtr_frames(uint32_t settle_time_ms) {
     if (err_read == MCP2515::ERROR_OK) {
         bool eff_ok = (rx_frame.can_id & CAN_EFF_FLAG) != 0;
         bool rtr_ok = (rx_frame.can_id & CAN_RTR_FLAG) != 0;
+        bool dlc_ok = (rx_frame.can_dlc == 0);
 
-        if (eff_ok && rtr_ok) {
-            safe_printf("%s[PASS]%s Extended RTR frame verified (EFF + RTR flags) (send_err=%d, read_err=%d)\n",
+        if (eff_ok && rtr_ok && dlc_ok) {
+            safe_printf("%s[PASS]%s Extended RTR frame verified (EFF + RTR flags, DLC=0) (send_err=%d, read_err=%d)\n",
                        ANSI_GREEN, ANSI_RESET, err, err_read);
             global_stats.record_pass();
         } else {
-            safe_printf("%s[FAIL]%s Extended RTR flags: EFF=%d RTR=%d (send_err=%d, read_err=%d)%s\n",
-                       ANSI_RED, ANSI_RESET, eff_ok, rtr_ok, err, err_read, ANSI_RESET);
+            safe_printf("%s[FAIL]%s Extended RTR: EFF=%d RTR=%d DLC=%d (expected DLC=0) (send_err=%d, read_err=%d)%s\n",
+                       ANSI_RED, ANSI_RESET, eff_ok, rtr_ok, rx_frame.can_dlc, err, err_read, ANSI_RESET);
             global_stats.record_fail();
         }
     } else {
@@ -2485,10 +2505,14 @@ void test_dual_chip_stress(CAN_SPEED speed, uint32_t settle_time_ms) {
             while (can2->readMessageQueued(&rx_frame, 10) == MCP2515::ERROR_OK) {
                 packets_received++;
 
-                // Verify data pattern
-                uint32_t received_pattern;
-                memcpy(&received_pattern, rx_frame.data, 4);
-                if ((received_pattern & 0xFF000000) != 0xAA000000) {
+                // Verify ALL 8 bytes of data pattern
+                // Pattern: data[0-3] = 0xAA|num, data[4-7] = same copy
+                uint32_t pattern1, pattern2;
+                memcpy(&pattern1, rx_frame.data, 4);
+                memcpy(&pattern2, rx_frame.data + 4, 4);
+
+                // Check: first byte is 0xAA AND both halves match
+                if ((pattern1 & 0xFF000000) != 0xAA000000 || pattern1 != pattern2) {
                     data_errors++;
                 }
             }
@@ -2510,10 +2534,14 @@ void test_dual_chip_stress(CAN_SPEED speed, uint32_t settle_time_ms) {
     while (can2->readMessageQueued(&rx_frame, 100) == MCP2515::ERROR_OK) {
         packets_received++;
 
-        // Verify data pattern
-        uint32_t received_pattern;
-        memcpy(&received_pattern, rx_frame.data, 4);
-        if ((received_pattern & 0xFF000000) != 0xAA000000) {
+        // Verify ALL 8 bytes of data pattern
+        // Pattern: data[0-3] = 0xAA|num, data[4-7] = same copy
+        uint32_t pattern1, pattern2;
+        memcpy(&pattern1, rx_frame.data, 4);
+        memcpy(&pattern2, rx_frame.data + 4, 4);
+
+        // Check: first byte is 0xAA AND both halves match
+        if ((pattern1 & 0xFF000000) != 0xAA000000 || pattern1 != pattern2) {
             data_errors++;
         }
     }
@@ -2898,13 +2926,23 @@ void test_dual_chip_filters_and_masks(uint32_t settle_time_ms) {
         MCP2515::ERROR err_rx4 = can2->readMessageQueued(&rx_ext, 10);
 
         if (err_tx4 == MCP2515::ERROR_OK && err_rx4 == MCP2515::ERROR_OK) {
-            if ((rx_ext.can_id & CAN_EFF_MASK) == 0x12345678 &&
-                (rx_ext.can_id & CAN_EFF_FLAG) &&
-                rx_ext.data[0] == 0x11) {
+            // Verify extended ID AND all 4 data bytes
+            bool id_ok = ((rx_ext.can_id & CAN_EFF_MASK) == 0x12345678) &&
+                         (rx_ext.can_id & CAN_EFF_FLAG);
+            bool data_ok = (rx_ext.data[0] == 0x11) &&
+                          (rx_ext.data[1] == 0x22) &&
+                          (rx_ext.data[2] == 0x33) &&
+                          (rx_ext.data[3] == 0x44);
+
+            if (id_ok && data_ok) {
                 safe_printf("  %s✓%s Chip2 accepted matching extended ID 0x12345678\n", ANSI_GREEN, ANSI_RESET);
                 print_pass("Extended frame filtering works correctly");
                 global_stats.record_pass();
             } else {
+                safe_printf("  Extended frame verification failed: ID_ok=%d, data_ok=%d\n", id_ok, data_ok);
+                safe_printf("  Expected data: 0x11 0x22 0x33 0x44\n");
+                safe_printf("  Received data: 0x%02X 0x%02X 0x%02X 0x%02X\n",
+                           rx_ext.data[0], rx_ext.data[1], rx_ext.data[2], rx_ext.data[3]);
                 print_fail("Extended frame data mismatch");
                 global_stats.record_fail();
             }
@@ -3829,12 +3867,14 @@ void test_dual_chip_maximum_throughput(CAN_SPEED speed) {
             while (can2->readMessageQueued(&rx_frame, 0) == MCP2515::ERROR_OK) {
                 packets_received++;
 
-                // Basic data verification (check pattern marker)
-                uint32_t expected_marker = 0xCC000000;
-                uint32_t received_pattern;
-                memcpy(&received_pattern, rx_frame.data, 4);
+                // Verify ALL 8 bytes of data pattern
+                // Pattern: data[0-3] = 0xCC|num, data[4-7] = same copy
+                uint32_t pattern1, pattern2;
+                memcpy(&pattern1, rx_frame.data, 4);
+                memcpy(&pattern2, rx_frame.data + 4, 4);
 
-                if ((received_pattern & 0xFF000000) != expected_marker) {
+                // Check: first byte is 0xCC AND both halves match
+                if ((pattern1 & 0xFF000000) != 0xCC000000 || pattern1 != pattern2) {
                     data_errors++;
                 }
             }
@@ -3860,11 +3900,14 @@ void test_dual_chip_maximum_throughput(CAN_SPEED speed) {
     while (can2->readMessageQueued(&rx_frame, 10) == MCP2515::ERROR_OK) {
         packets_received++;
 
-        uint32_t expected_marker = 0xCC000000;
-        uint32_t received_pattern;
-        memcpy(&received_pattern, rx_frame.data, 4);
+        // Verify ALL 8 bytes of data pattern
+        // Pattern: data[0-3] = 0xCC|num, data[4-7] = same copy
+        uint32_t pattern1, pattern2;
+        memcpy(&pattern1, rx_frame.data, 4);
+        memcpy(&pattern2, rx_frame.data + 4, 4);
 
-        if ((received_pattern & 0xFF000000) != expected_marker) {
+        // Check: first byte is 0xCC AND both halves match
+        if ((pattern1 & 0xFF000000) != 0xCC000000 || pattern1 != pattern2) {
             data_errors++;
         }
     }
@@ -4148,22 +4191,41 @@ void test_dual_chip_transmit_priority(uint32_t settle_time_ms) {
     }
 
     if (frames_received == 3) {
-        // Expected order (by priority): TXB2 (0x102), TXB1 (0x101), TXB0 (0x100)
-        // Or reversed depending on internal timing
-        bool priority_order = (rx_frames[0].can_id & CAN_SFF_MASK) == 0x102;
+        // Verify data integrity: each ID should have matching data byte
+        // ID 0x100 -> data 0xA0, ID 0x101 -> data 0xA1, ID 0x102 -> data 0xA2
+        bool data_integrity = true;
+        for (int i = 0; i < 3; i++) {
+            uint32_t id = rx_frames[i].can_id & CAN_SFF_MASK;
+            uint8_t expected_data = 0xA0 + (id - 0x100);
+            if (rx_frames[i].data[0] != expected_data) {
+                safe_printf("  %s✗%s Frame %d data mismatch: ID=0x%03lX, expected=0x%02X, got=0x%02X\n",
+                           ANSI_RED, ANSI_RESET, i + 1, (unsigned long)id,
+                           expected_data, rx_frames[i].data[0]);
+                data_integrity = false;
+            }
+        }
 
-        if (priority_order) {
-            safe_printf("  %s✓%s Highest priority message (TXB2) transmitted first\n",
-                       ANSI_GREEN, ANSI_RESET);
-            print_pass("TX priority ordering verified");
-            global_stats.record_pass();
+        if (!data_integrity) {
+            print_fail("Priority test data integrity failed");
+            global_stats.record_fail();
         } else {
-            // Priority may not be perfectly observable due to timing
-            safe_printf("  First received ID: 0x%03lX\n",
-                       (unsigned long)(rx_frames[0].can_id & CAN_SFF_MASK));
-            safe_printf("%s[WARN]%s Priority order not strictly observed (may be timing-dependent)%s\n",
-                       ANSI_YELLOW, ANSI_RESET, ANSI_RESET);
-            global_stats.record_warning();
+            // Expected order (by priority): TXB2 (0x102), TXB1 (0x101), TXB0 (0x100)
+            // Or reversed depending on internal timing
+            bool priority_order = (rx_frames[0].can_id & CAN_SFF_MASK) == 0x102;
+
+            if (priority_order) {
+                safe_printf("  %s✓%s Highest priority message (TXB2) transmitted first\n",
+                           ANSI_GREEN, ANSI_RESET);
+                print_pass("TX priority ordering verified");
+                global_stats.record_pass();
+            } else {
+                // Priority may not be perfectly observable due to timing
+                safe_printf("  First received ID: 0x%03lX\n",
+                           (unsigned long)(rx_frames[0].can_id & CAN_SFF_MASK));
+                safe_printf("%s[WARN]%s Priority order not strictly observed (may be timing-dependent)%s\n",
+                           ANSI_YELLOW, ANSI_RESET, ANSI_RESET);
+                global_stats.record_warning();
+            }
         }
     } else {
         safe_printf("%s[FAIL]%s Only received %d/3 frames%s\n",
@@ -4187,8 +4249,11 @@ void test_dual_chip_transmit_priority(uint32_t settle_time_ms) {
     safe_printf("  Expected order: TXB2 > TXB1 > TXB0 (per datasheet)\n");
 
     frame0.can_id = 0x200;
+    frame0.data[0] = 0xB0;  // Update data to match new ID
     frame1.can_id = 0x201;
+    frame1.data[0] = 0xB1;
     frame2.can_id = 0x202;
+    frame2.data[0] = 0xB2;
 
     can->sendMessage(MCP2515::TXB0, &frame0);
     can->sendMessage(MCP2515::TXB1, &frame1);
@@ -4205,9 +4270,27 @@ void test_dual_chip_transmit_priority(uint32_t settle_time_ms) {
     }
 
     if (frames_received == 3) {
-        safe_printf("  All 3 frames received\n");
-        print_pass("Same-priority transmission completed");
-        global_stats.record_pass();
+        // Verify data integrity: ID 0x200->0xB0, 0x201->0xB1, 0x202->0xB2
+        bool data_integrity = true;
+        for (int i = 0; i < 3; i++) {
+            uint32_t id = rx_frames[i].can_id & CAN_SFF_MASK;
+            uint8_t expected_data = 0xB0 + (id - 0x200);
+            if (rx_frames[i].data[0] != expected_data) {
+                safe_printf("  %s✗%s Frame %d data mismatch: ID=0x%03lX, expected=0x%02X, got=0x%02X\n",
+                           ANSI_RED, ANSI_RESET, i + 1, (unsigned long)id,
+                           expected_data, rx_frames[i].data[0]);
+                data_integrity = false;
+            }
+        }
+
+        if (!data_integrity) {
+            print_fail("Tie-breaker test data integrity failed");
+            global_stats.record_fail();
+        } else {
+            safe_printf("  All 3 frames received with correct data\n");
+            print_pass("Same-priority transmission completed");
+            global_stats.record_pass();
+        }
     } else {
         safe_printf("%s[FAIL]%s Only received %d/3 frames%s\n",
                    ANSI_RED, ANSI_RESET, frames_received, ANSI_RESET);
