@@ -1781,7 +1781,10 @@ void MCP2515::getStatistics(mcp2515_statistics_t* stats)
 
 void MCP2515::resetStatistics(void)
 {
+    // Use spinlock to prevent torn writes from ISR task on dual-core ESP32
+    portENTER_CRITICAL(&statistics_mutex);
     memset(&statistics, 0, sizeof(statistics));
+    portEXIT_CRITICAL(&statistics_mutex);
 }
 
 bool MCP2515::isInitialized(void)
