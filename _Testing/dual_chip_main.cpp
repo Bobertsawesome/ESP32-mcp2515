@@ -4524,6 +4524,10 @@ void test_dual_chip_filter_hit(uint32_t settle_time_ms) {
         return;
     }
 
+    // CRITICAL: Disable interrupt mode on Chip2 for direct hardware reads
+    // The ISR task would otherwise consume frames before we can read FILHIT bits
+    can2->setInterruptMode(false);
+
     // Configure Chip1 for normal transmission
     can->reset();
     can->setBitrate(DEFAULT_CAN_SPEED, DEFAULT_CRYSTAL_FREQ);
@@ -4595,6 +4599,9 @@ void test_dual_chip_filter_hit(uint32_t settle_time_ms) {
                    ANSI_RED, ANSI_RESET, err, ANSI_RESET);
         global_stats.record_fail();
     }
+
+    // Re-enable interrupt mode on Chip2 (was disabled for direct hardware reads)
+    can2->setInterruptMode(true);
 
     // Restore default configuration
     configure_both_chips(DEFAULT_CAN_SPEED, DEFAULT_CRYSTAL_FREQ, true);
